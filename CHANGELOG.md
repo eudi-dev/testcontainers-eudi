@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-10-02
+
+### Added
+
+- `withStorage(Storage)` selects file, memory or automatic storage through the `Storage` enum.
+
+### Changed
+
+- Update the default wallet image to `ghcr.io/dominikschlosser/eudi-dev:v2.5.0`, which supports storage selection.
+
+### Fixed
+
+- Use file storage by default so mounted CA certificates are loaded and custom PID credentials survive the startup commands when using wallet images that default to memory storage. Explicit `EUDI_DEV_STORAGE` overrides remain supported.
+
 ## [2.4.0] - 2026-09-02
 
 ### Changed

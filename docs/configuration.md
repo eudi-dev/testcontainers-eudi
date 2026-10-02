@@ -16,6 +16,14 @@ EudiWalletContainer wallet = new EudiWalletContainer()
 
 `withTemplatesDirectory(Path)` ships a folder of credential templates into the container, see [Credentials](credentials.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md).
 
+## Storage
+
+The wrapper sets `EUDI_DEV_STORAGE=file`, including for images that default to memory storage. Wallet state lives in the container unless you mount a directory. Files copied or mounted under `/home/app/.eudi-dev` are loaded, including `wallet-ca-key.pem` and `wallet-ca-cert.pem`.
+
+Select a backend with `withStorage(Storage.FILE)`, `withStorage(Storage.MEMORY)` or `withStorage(Storage.AUTO)`. Storage selection requires eudi-dev 2.4.0 or later. Automatic selection uses files when a state directory was supplied or already exists, and memory otherwise. For PostgreSQL, use `withEnv("EUDI_DEV_STORAGE", "postgres://...")`.
+
+Custom PID startup uses separate generation and serving commands, so `withPidClaims(...)` and `withPidType(...)` need file or PostgreSQL storage. With memory storage, generate custom credentials through `wallet.client()` after the container starts.
+
 ## Conformance settings
 
 Four settings control how strictly the wallet plays the protocol. Each has a startup option and a runtime setter, so a single container can serve tests with different requirements:

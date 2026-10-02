@@ -39,7 +39,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v2.2.0";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v2.5.0";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
@@ -72,10 +72,15 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
     public EudiWalletContainer(DockerImageName dockerImageName) {
         super(dockerImageName);
+        withEnv("EUDI_DEV_STORAGE", Storage.FILE.getWireValue());
         addExposedPort(WALLET_PORT);
         addExposedPort(ISSUER_TLS_PORT);
         waitingFor(Wait.forHttp("/api/version").forPort(WALLET_PORT));
         withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("eudi-dev")));
+    }
+
+    public EudiWalletContainer withStorage(Storage storage) {
+        return withEnv("EUDI_DEV_STORAGE", storage.getWireValue());
     }
 
     public EudiWalletContainer withoutDefaultPid() {

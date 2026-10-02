@@ -19,12 +19,14 @@ Requires Java 21 and Docker. The artifact is on [Maven Central](https://central.
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-eudi</artifactId>
-    <version>2.4.0</version>
+    <version>2.5.0</version>
     <scope>test</scope>
 </dependency>
 ```
 
-The container runs `ghcr.io/dominikschlosser/eudi-dev:v2.2.0` by default. Pass a different image tag to the constructor to pin another wallet version.
+The container runs `ghcr.io/dominikschlosser/eudi-dev:v2.5.0` by default. Pass a different image tag to the constructor to pin another wallet version.
+
+The wrapper uses file storage so mounted wallet state and CA certificates are loaded, and custom PID credentials survive the startup commands. Use `withStorage(Storage.MEMORY)` for memory storage. See [Storage](docs/configuration.md#storage) for all options.
 
 ## Test your verifier
 
@@ -124,8 +126,6 @@ The consent dialog is testable too: start the wallet with `withoutAutoAccept()` 
 ## Notices
 
 **No EU affiliation:** This is an independent open source project. It is not an official repository of the European Commission or the European Union, and it is not affiliated with or endorsed by them. "EUDI" is used descriptively, for a testing tool aimed at the European Digital Identity ecosystem. For official EUDI Wallet resources see the [eu-digital-identity-wallet](https://github.com/eu-digital-identity-wallet) organization.
-
-**Renamed from testcontainers-oid4vc:** The wrapped tool was renamed from `oid4vc-dev` to `eudi-dev`, and this module followed as `testcontainers-eudi` starting with version 2.0.0. The Java package moved to `io.github.dominikschlosser.eudi` and the container class is now `EudiWalletContainer`. Versions up to 1.6.0 remain available as `testcontainers-oid4vc`.
 
 ## License
 
