@@ -19,12 +19,14 @@ Requires Java 21 and Docker. The artifact is on [Maven Central](https://central.
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-eudi</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.0-beta.1</version>
     <scope>test</scope>
 </dependency>
 ```
 
-The container runs `ghcr.io/dominikschlosser/eudi-dev:v3.0.0` by default. Pass a different image tag to the constructor to pin another wallet version.
+The container runs `ghcr.io/dominikschlosser/eudi-dev:v3.0.0-beta.1` by default. Pass a different image tag to the constructor to pin another wallet version.
+
+3.0.0 is in beta. Maven only uses a beta when you set its version, so your build stays on the stable release until you opt in. The latest stable release is [2.5.0](https://central.sonatype.com/artifact/io.github.dominikschlosser/testcontainers-eudi/2.5.0). It runs eudi-dev 2.5.0. To try the 3.0.0 wallet in the browser, use the beta demo at [preview.eudi-test.dev](https://preview.eudi-test.dev).
 
 The wrapper uses file storage so mounted wallet state and CA certificates are loaded, and custom PID credentials survive the startup commands. Use `withStorage(Storage.MEMORY)` for memory storage. See [Storage](docs/configuration.md#storage) for all options.
 
