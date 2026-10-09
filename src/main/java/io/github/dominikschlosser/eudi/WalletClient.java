@@ -908,8 +908,18 @@ public class WalletClient {
 
     private static String requireSuccess(HttpRequest request, HttpResponse<String> response) {
         if (response.statusCode() >= 400) {
-            throw new WalletClientException("HTTP " + response.statusCode() + " " + request.method()
-                    + " " + request.uri() + ": " + response.body());
+            Map<String, Object> body;
+            try {
+                body = asMap(MAPPER.readValue(response.body(), Object.class));
+            } catch (IOException e) {
+                body = Map.of();
+            }
+            throw new WalletClientException(
+                    "HTTP " + response.statusCode() + " " + request.method()
+                            + " " + request.uri() + ": " + response.body(),
+                    response.statusCode(),
+                    body.get("error") instanceof String error ? error : null,
+                    body.get("error_description") instanceof String description ? description : null);
         }
         return response.body();
     }
@@ -1087,9 +1097,12 @@ public class WalletClient {
 
     private static RegisteredCredential toRegisteredCredential(Map<String, Object> raw) {
         CredentialFormat format = CredentialFormat.fromWireValue((String) raw.get("format"));
+        // A provided attestation names its type (TS05 ProvidedAttestation), a
+        // registered credential names it in its DCQL meta.
         Map<String, Object> meta = asMap(raw.get("meta"));
         List<String> vcts = stringList(meta.get("vct_values"));
-        String type = vcts.isEmpty() ? (String) meta.get("doctype_value") : vcts.getFirst();
+        String type = raw.get("type") instanceof String provided ? provided
+                : vcts.isEmpty() ? (String) meta.get("doctype_value") : vcts.getFirst();
         List<String> claims = mapList(raw.get("claims"), claim -> claim.get("path") instanceof List<?> path
                 ? ClaimPaths.toClaim(format, type, path)
                 : null);
@@ -1168,9 +1181,10 @@ public class WalletClient {
                     }
                 }
             }
-            return new PresentationResponse(redirectUri, idToken, body);
+            return new PresentationResponse((String) parsed.get("status"), redirectUri, idToken,
+                    (String) parsed.get("error"), (String) parsed.get("error_description"), body);
         } catch (IOException e) {
-            return new PresentationResponse(null, null, body);
+            return new PresentationResponse(null, null, null, null, null, body);
         }
     }
 

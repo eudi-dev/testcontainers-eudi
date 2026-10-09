@@ -109,7 +109,10 @@ public class RelyingPartyRegistration {
         return this;
     }
 
-    /** The purpose of the intended use. The consent dialog shows it. */
+    /**
+     * The purpose of the intended use. A verifier needs one (TS05 v1.5
+     * §2.4.4). The consent dialog shows it.
+     */
     public RelyingPartyRegistration purpose(String purpose) {
         this.purpose = purpose;
         return this;
@@ -156,7 +159,7 @@ public class RelyingPartyRegistration {
             service.put("serviceIdentifier", serviceIdentifier);
         }
         if (supportUri != null) {
-            service.put("supportURI", List.of(supportUri));
+            service.put("supportURI", supportUri);
         }
         if (entitlement != null) {
             service.put("entitlements", List.of(entitlement.getWireValue()));
@@ -165,7 +168,7 @@ public class RelyingPartyRegistration {
             service.put("providesAttestations", attestations.stream()
                     .map(attestation -> Map.of(
                             "format", attestation.format().getWireValue(),
-                            "meta", meta(attestation)))
+                            "type", attestation.type()))
                     .toList());
         }
         if (!credentials.isEmpty()) {

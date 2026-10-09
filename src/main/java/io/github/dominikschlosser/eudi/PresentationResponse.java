@@ -15,5 +15,13 @@
  */
 package io.github.dominikschlosser.eudi;
 
-public record PresentationResponse(String redirectUri, String idToken, String rawBody) {
+/**
+ * The wallet's answer to a presentation request. {@code status} is
+ * {@code submitted} when the wallet sent a presentation. It is
+ * {@code denied}, {@code refused} or {@code error} when the wallet sent the
+ * verifier an error response with {@code error} and {@code errorDescription}
+ * (OpenID4VP 1.0 §8.5).
+ */
+public record PresentationResponse(String status, String redirectUri, String idToken,
+        String error, String errorDescription, String rawBody) {
 }

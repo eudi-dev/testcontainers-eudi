@@ -92,9 +92,9 @@ class EudiWalletRegistrarTest {
 
         assertThat(client.revokeRegistrationCertificates(shop.identifier(), intendedUse)).isEqualTo(1);
         Map<String, Object> revoked = createVerifierRequest(signingKey, registration.verifierInfo());
-        assertThatThrownBy(() -> wallet.acceptPresentationRequest((String) revoked.get("scheme_uri")))
-                .isInstanceOf(WalletClientException.class)
-                .hasMessageContaining("revoked");
+        PresentationResponse refusal = wallet.acceptPresentationRequest((String) revoked.get("scheme_uri"));
+        assertThat(refusal.error()).isEqualTo("access_denied");
+        assertThat(refusal.errorDescription()).contains("revoked");
 
         assertThat(client.activateRegistrationCertificates(shop.identifier(), intendedUse)).isEqualTo(1);
         Map<String, Object> activated = createVerifierRequest(signingKey, registration.verifierInfo());

@@ -396,7 +396,8 @@ class EudiWalletContainerTest {
     @Test
     void deleteNonExistentCredentialThrows() {
         assertThatThrownBy(() -> wallet.client().deleteCredential("non-existent-id"))
-                .isInstanceOf(WalletClientException.class);
+                .isInstanceOfSatisfying(WalletClientException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(404));
     }
 
     @Test
@@ -824,9 +825,12 @@ class EudiWalletContainerTest {
             Map<String, Object> request = createVerifierRequest(arfWallet,
                     "{\"type\": \"pid\", \"format\": \"sd-jwt\", \"identity\": \"unregistered\"}");
 
-            assertThatThrownBy(() -> arfWallet.acceptPresentationRequest((String) request.get("scheme_uri")))
-                    .isInstanceOf(WalletClientException.class)
-                    .hasMessageContaining("RPRC_19");
+            // the access certificate authenticates the verifier, so the wallet
+            // answers it with access_denied (OpenID4VP 1.0 §8.5)
+            PresentationResponse refusal = arfWallet.acceptPresentationRequest((String) request.get("scheme_uri"));
+            assertThat(refusal.status()).isEqualTo("refused");
+            assertThat(refusal.error()).isEqualTo("access_denied");
+            assertThat(refusal.errorDescription()).contains("RPRC_19");
         }
     }
 
