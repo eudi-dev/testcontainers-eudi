@@ -100,30 +100,26 @@ class EudiWalletContainerTest {
     }
 
     @Test
-    void trustListIndexExposesPidAndLocalProfiles() {
+    void trustListIndexExposesOneListPerCategory() {
         WalletClient client = wallet.client();
         String vct = "urn:test:trust-list-index:1";
-        String sdJwt = new SdJwtCredentialBuilder()
-                .vct(vct)
-                .claim("name", "Trust List Index")
-                .build();
-
-        client.importCredential(sdJwt);
+        client.issueCredential(IssueRequest.sdJwt(vct).claim("name", "Trust List Index").trustProfile("eaa"));
         try {
             List<TrustListIndexEntry> trustLists = client.getTrustLists();
 
-            assertThat(trustLists).extracting(TrustListIndexEntry::id).contains("pid", "local");
+            assertThat(trustLists).extracting(TrustListIndexEntry::id)
+                    .containsExactly("pid", "qeaa", "pub-eaa", "eaa", "wallet-provider");
             assertThat(trustLists).filteredOn(TrustListIndexEntry::defaultProfile).singleElement()
                     .extracting(TrustListIndexEntry::id)
                     .isEqualTo("pid");
-            assertThat(trustLists).filteredOn(entry -> "local".equals(entry.id())).singleElement()
+            assertThat(trustLists).filteredOn(entry -> "eaa".equals(entry.id())).singleElement()
                     .satisfies(entry -> {
-                        assertThat(entry.path()).isEqualTo("/api/trustlists/local");
-                        assertThat(entry.advertisedUrl()).endsWith("/api/trustlists/local");
+                        assertThat(entry.path()).isEqualTo("/api/trustlists/eaa");
+                        assertThat(entry.advertisedUrl()).endsWith("/api/trustlists/eaa");
                         assertThat(entry.url()).isEqualTo(entry.advertisedUrl());
-                        assertThat(entry.resolveUrl(wallet.getTrustListsUrl())).isEqualTo(wallet.getTrustListUrl("local"));
-                        assertThat(wallet.resolveTrustListUrl(entry)).isEqualTo(wallet.getTrustListUrl("local"));
-                        assertThat(wallet.resolveHttpsTrustListUrl(entry)).isEqualTo(wallet.getHttpsTrustListUrl("local"));
+                        assertThat(entry.resolveUrl(wallet.getTrustListsUrl())).isEqualTo(wallet.getTrustListUrl("eaa"));
+                        assertThat(wallet.resolveTrustListUrl(entry)).isEqualTo(wallet.getTrustListUrl("eaa"));
+                        assertThat(wallet.resolveHttpsTrustListUrl(entry)).isEqualTo(wallet.getHttpsTrustListUrl("eaa"));
                         assertThat(entry.attestations()).extracting(TrustListAttestation::vct).contains(vct);
                     });
         } finally {
@@ -134,17 +130,12 @@ class EudiWalletContainerTest {
     @Test
     void trustListSelectorsReturnExpectedProfiles() throws Exception {
         WalletClient client = wallet.client();
-        String localVct = "urn:test:trust-list-selector:1";
-        String sdJwt = new SdJwtCredentialBuilder()
-                .vct(localVct)
-                .claim("name", "Trust List Selector")
-                .build();
-
-        client.importCredential(sdJwt);
+        String eaaVct = "urn:test:trust-list-selector:1";
+        client.issueCredential(IssueRequest.sdJwt(eaaVct).claim("name", "Trust List Selector").trustProfile("eaa"));
         try {
             String defaultTrustList = client.getTrustList();
-            String localTrustList = client.getTrustListById("local");
-            String localByVctTrustList = client.getTrustListForVct(localVct);
+            String eaaTrustList = client.getTrustListById("eaa");
+            String eaaByVctTrustList = client.getTrustListForVct(eaaVct);
 
             String pidDocType = client.getCredentials().stream()
                     .filter(c -> c.format() == CredentialFormat.MSO_MDOC)
@@ -155,14 +146,14 @@ class EudiWalletContainerTest {
 
             assertThat(trustListLoteType(defaultTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
-            assertThat(trustListLoteType(localTrustList))
+            assertThat(trustListLoteType(eaaTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
-            assertThat(trustListLoteType(localByVctTrustList))
+            assertThat(trustListLoteType(eaaByVctTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
             assertThat(trustListLoteType(pidByDocTypeTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
         } finally {
-            client.deleteCredentialsByType(localVct);
+            client.deleteCredentialsByType(eaaVct);
         }
     }
 
@@ -174,14 +165,14 @@ class EudiWalletContainerTest {
         assertThat(wallet.getHttpsAuthorizeUrl()).endsWith("/authorize");
         assertThat(wallet.getTrustListUrl()).endsWith("/api/trustlist");
         assertThat(wallet.getTrustListsUrl()).endsWith("/api/trustlists");
-        assertThat(wallet.getTrustListUrl("local")).endsWith("/api/trustlists/local");
+        assertThat(wallet.getTrustListUrl("eaa")).endsWith("/api/trustlists/eaa");
         assertThat(wallet.getTrustListUrlForVct("urn:test:url accessor:1"))
                 .endsWith("/api/trustlist?vct=urn%3Atest%3Aurl+accessor%3A1");
         assertThat(wallet.getTrustListUrlForDocType("org.iso.23220.photoid.1"))
                 .endsWith("/api/trustlist?doctype=org.iso.23220.photoid.1");
         assertThat(wallet.getHttpsTrustListUrl()).endsWith("/api/trustlist");
         assertThat(wallet.getHttpsTrustListsUrl()).endsWith("/api/trustlists");
-        assertThat(wallet.getHttpsTrustListUrl("local")).endsWith("/api/trustlists/local");
+        assertThat(wallet.getHttpsTrustListUrl("eaa")).endsWith("/api/trustlists/eaa");
         assertThat(wallet.getHttpsTrustListUrlForVct("urn:test:url accessor:1"))
                 .endsWith("/api/trustlist?vct=urn%3Atest%3Aurl+accessor%3A1");
         assertThat(wallet.getHttpsTrustListUrlForDocType("org.iso.23220.photoid.1"))

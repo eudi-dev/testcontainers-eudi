@@ -50,12 +50,12 @@ Trust list URLs, in HTTP and HTTPS form:
 ```java
 wallet.getTrustListUrl();            // http://host:port/api/trustlist
 wallet.getTrustListsUrl();           // http://host:port/api/trustlists
-wallet.getTrustListUrl("local");     // http://host:port/api/trustlists/local
+wallet.getTrustListUrl("eaa");       // http://host:port/api/trustlists/eaa
 wallet.getTrustListUrlForVct("urn:example:my-credential:1");
 wallet.getTrustListUrlForDocType("org.iso.23220.photoid.1");
 wallet.getHttpsTrustListUrl();
 wallet.getHttpsTrustListsUrl();
-wallet.getHttpsTrustListUrl("local");
+wallet.getHttpsTrustListUrl("eaa");
 wallet.getHttpsTrustListUrlForVct("urn:example:my-credential:1");
 wallet.getHttpsTrustListUrlForDocType("org.iso.23220.photoid.1");
 ```

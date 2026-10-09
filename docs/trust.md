@@ -14,7 +14,7 @@ String trustListJwt = client.getTrustList();
 List<TrustListIndexEntry> trustLists = client.getTrustLists();
 
 // Select a specific trust list
-String localTrustListJwt = client.getTrustListById("local");
+String eaaTrustListJwt = client.getTrustListById("eaa");
 String pidTrustListByDocType = client.getTrustListForDocType("eu.europa.ec.eudi.pid.1");
 String customTrustListByVct = client.getTrustListForVct("urn:example:my-credential:1");
 ```
@@ -22,8 +22,8 @@ String customTrustListByVct = client.getTrustListForVct("urn:example:my-credenti
 `/api/trustlists` is a discovery endpoint. Each entry carries the trust list's relative `path` and an `advertisedUrl` built from the wallet's own base URL, which points inside the container and is not reachable from the test. Resolve `path` against the mapped wallet URL instead:
 
 ```java
-String reachableLocalTrustListUrl = client.getTrustLists().stream()
-    .filter(entry -> "local".equals(entry.id()))
+String reachableEaaTrustListUrl = client.getTrustLists().stream()
+    .filter(entry -> "eaa".equals(entry.id()))
     .findFirst()
     .map(wallet::resolveTrustListUrl)
     .orElseThrow();

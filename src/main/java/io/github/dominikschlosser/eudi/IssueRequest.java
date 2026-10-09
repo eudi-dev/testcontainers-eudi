@@ -182,6 +182,10 @@ public class IssueRequest {
         return this;
     }
 
+    /**
+     * Sets the credential category: {@code pid}, {@code qeaa}, {@code pub-eaa} or {@code eaa}. The credential is then on the
+     * wallet's trusted list of that category. Without it, the category of the template or the catalogue entry applies.
+     */
     public IssueRequest trustProfile(String trustProfile) {
         this.trustProfile = trustProfile;
         return this;
