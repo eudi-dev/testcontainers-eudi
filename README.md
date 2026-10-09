@@ -107,20 +107,24 @@ By default the wallet tolerates spec violations and logs them, so flows keep wor
 @Container
 static EudiWalletContainer wallet = new EudiWalletContainer()
         .withStrictValidation()   // fail flows on OID4VP and OID4VCI violations
-        .withHaip();              // enforce HAIP 1.0 on top
+        .withHaip()               // enforce HAIP 1.0 on top
+        .withArf();               // check access and registration certificates against the ARF
 
 // and assert what the wallet actually did during a flow
 List<ActivityLogEntry> log = wallet.client().getActivityLog();
 ```
+
+The ARF checks need certificates from a registrar. The wallet includes one: register your verifier or issuer and get its access and registration certificates, see [Registrar](docs/registrar.md).
 
 The consent dialog is testable too: start the wallet with `withoutAutoAccept()` and your test makes the decision, choosing the credential and the claims to disclose or denying outright, see [Flows](docs/flows.md).
 
 ## Documentation
 
 - [Configuration](docs/configuration.md): startup options, conformance settings, custom PID claims
-- [Credentials](docs/credentials.md): issuing, templates, importing, revocation, the SD-JWT builder
+- [Credentials](docs/credentials.md): issuing, templates, startup credentials, importing, revocation, the SD-JWT builder
 - [OID4VCI and OID4VP flows](docs/flows.md): offers, presentations, consent handling
 - [Trust](docs/trust.md): trust lists, TLS certificates, issuer metadata
+- [Registrar](docs/registrar.md): register verifiers and issuers, ARF checks, attestation catalogue
 - [Networking and URLs](docs/networking.md): endpoint URLs, host access, base URL
 
 ## Notices

@@ -31,6 +31,31 @@ String reachableEaaTrustListUrl = client.getTrustLists().stream()
 
 The selector methods above return the ETSI trust-list JWT itself: by profile id, by SD-JWT credential type, or by mdoc document type.
 
+## Your own providers and lists
+
+With `withArf()` the wallet takes every trust anchor from its trusted lists (ETSI TS 119 602). Put the CA of your issuer or registrar on one of them, or add an external list:
+
+```java
+WalletClient client = wallet.client();
+
+// Anchor the PIDs of your issuer (lists: pid, qeaa, pub-eaa, eaa, wallet-provider, access-ca, registrar)
+TrustedEntity entity = client.addTrustedEntity("pid", "Example PID Provider", Files.readString(Path.of("pid-ca.pem")));
+
+// Add an external list. In debug mode error() says why the wallet can't use it yet.
+TrustedList list = client.addTrustedList("https://lists.example/pid.jwt");
+
+TrustState state = client.getTrustState();
+state.lists();    // external lists, and the lists a list of trusted lists points to (via())
+state.listsUrl(); // the wallet's list of trusted lists
+
+client.removeTrustedEntity(entity.id());
+client.removeTrustedList(list.url());
+```
+
+`withTrustedList(url)` adds a list when the container starts. A list's signer has to chain to the wallet CA or to a CA from `withTrustListCa(Path)`. A list that a list of trusted lists points to is checked against the pointer's certificate instead.
+
+In debug mode the wallet reports the checks an issuer failed in the `findings` member of the offer response (`OfferResponse.rawBody()`), and the checks a verifier failed in `PresentationResponse.findings()`.
+
 ## TLS certificates
 
 The wallet exposes both its HTTPS leaf certificate and the shared wallet CA certificate, each as PEM or JWKS. Use the leaf certificate to trust one wallet instance. Use the CA certificate if your test harness must trust auxiliary wallets signed by the same CA:

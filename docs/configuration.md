@@ -14,7 +14,14 @@ EudiWalletContainer wallet = new EudiWalletContainer()
     .withoutDefaultPid();                            // start without the default PID credential
 ```
 
-`withTemplatesDirectory(Path)` ships a folder of credential templates into the container, see [Credentials](credentials.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md).
+`withTemplatesDirectory(Path)` ships a folder of credential templates into the container, and `withStartupCredentials(Path)` adds credentials on start, see [Credentials](credentials.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md).
+
+The container counts as started once `GET /readyz` answers. That endpoint also checks the storage backend. Wallet images before eudi-dev 2.6.0 lack it. For those, wait on the version endpoint instead:
+
+```java
+new EudiWalletContainer("ghcr.io/dominikschlosser/eudi-dev:v2.5.0")
+    .waitingFor(Wait.forHttp("/api/version").forPort(8085));
+```
 
 ## Storage
 
@@ -26,16 +33,22 @@ Custom PID startup uses separate generation and serving commands, so `withPidCla
 
 ## Conformance settings
 
-Four settings control how strictly the wallet plays the protocol. Each has a startup option and a runtime setter, so a single container can serve tests with different requirements:
+These settings control how strictly the wallet plays the protocol. Each has a runtime setter, so a single container can serve tests with different requirements:
 
 | Setting | Startup | Runtime |
 |---|---|---|
 | Validation mode | `withStrictValidation()` | `setValidationMode(mode)` |
 | HAIP 1.0 enforcement | `withHaip()` | `setRequireHaip(flag)` |
+| ARF checks of relying party certificates | `withArf()` | `setRequireArf(flag)` |
 | Encrypted request objects | `withRequireEncryptedRequest()` | `setRequireEncryptedRequest(flag)` |
 | OpenID4VCI feature level | `withVciVersion(version)` | `setVciVersion(version)` |
+| Key attestation level | None | `setKeyAttestationLevel(level)` |
 
 In the default `debug` mode the wallet tolerates spec violations by the issuer or verifier under test and logs them. In `strict` mode the violation fails the flow. `withHaip()` enforces HAIP 1.0 on top (x509_hash client id prefix, `direct_post.jwt`, DCQL, JAR, ES256), and `withRequireEncryptedRequest()` makes the wallet advertise an encryption key in its `wallet_metadata` and demand JWE request objects.
+
+`withArf()` checks the access and registration certificates of verifiers and issuers against the ARF. `withRelyingPartyCa(Path)` adds the CA certificates of a registrar outside the wallet, and `withTrustListCa(Path)` those of a trusted list operator. See [Registrar](registrar.md#arf-checks).
+
+`setKeyAttestationLevel(level)` sets the `key_storage` and `user_authentication` claims of the wallet's key attestations (OpenID4VCI 1.0 Appendix D.2). By default they follow the issuer's requirements. `KeyAttestationLevel.NONE` leaves them out.
 
 `withVciVersion(VciVersion.V1_1)` moves the wallet to the OpenID4VCI 1.1 draft level, which enables interactive authorization: against an issuer publishing an `authorization_challenge_endpoint`, the wallet redeems an authorization-code offer by presenting a credential it holds instead of going through a browser redirect. See [Flows](flows.md#presentation-during-issuance-openid4vci-11) for the flow.
 

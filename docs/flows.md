@@ -12,6 +12,16 @@ String redirectUri = presentation.redirectUri();
 String idToken = presentation.idToken(); // set when response_type includes id_token
 ```
 
+When the wallet refuses a request, the call throws a `WalletClientException`. It carries the HTTP status and the error fields of the response. A presentation request that fails validation in strict mode gives an OpenID4VP 1.0 §8.5 error code:
+
+```java
+WalletClientException refusal = assertThrows(WalletClientException.class,
+    () -> wallet.acceptPresentationRequest(requestUri));
+assertThat(refusal.getStatusCode()).isEqualTo(400);
+assertThat(refusal.getError()).isEqualTo("invalid_request");
+assertThat(refusal.getErrorDescription()).contains("HAIP");
+```
+
 An offer can require a transaction code that the issuer delivers separately (OpenID4VCI §4.1.1). The wallet refuses such an offer without the code, so pass it along:
 
 ```java
@@ -60,7 +70,9 @@ A pending `ConsentRequest` carries what the wallet's consent dialog would show:
 
 - `matchedCredentials()` holds the credentials the wallet would present on its own, one `CredentialMatch` per DCQL credential query, including the claims it would disclose.
 - `credentialOptions()` holds every credential that could answer each query, plus the request's credential set options when the verifier offered alternatives (for example SD-JWT or mdoc).
-- `purposes()` holds what the verifier registered the data request for, when its registration certificate names purposes.
+- `purposes()` and `privacyPolicies()` come from the verifier's registration certificate, if it sends one that belongs to the access certificate of the signed request.
+
+Each `ConsentQueryOptions` says whether the query sets `multiple`. The wallet then sends every candidate. In debug mode a query also lists `nonMatching()` credentials. Their `mismatches()` say why they don't match. When a credential satisfies more than one `claim_sets` option of the query, its `CredentialMatch` lists them in `claimSets()`.
 
 ### Approving with a specific selection
 
@@ -83,7 +95,9 @@ ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.appr
 PresentationResponse response = submitted.get();
 ```
 
-- `pickCredential(queryId, credentialId)` presents one of the query's `candidates()` instead of the wallet's first choice.
+- `pickCredential(queryId, credentialId)` presents one of the query's `candidates()` instead of the wallet's first choice. In debug mode it can also pick one of the `nonMatching()` credentials, to test how your verifier handles a wrong answer.
+- `pickCredentials(queryId, credentialIds...)` presents only some of the candidates of a query that sets `multiple`. At least one must stay.
+- `chooseClaimSet(queryId, index)` answers a query with another of its `claim_sets` options, by the `ConsentClaimSet.index()`. Debug mode only.
 - `selectClaims(credentialId, claims...)` discloses only the named claims of that credential. Credentials without an entry disclose everything the request matched.
 - `chooseSetOption(setIndex, optionIndex)` answers a credential set with another of its `options()`, for example the mdoc PID instead of the SD-JWT one. `skipOptionalSet(setIndex)` skips a set the verifier marked optional.
 - `txCode(code)` supplies the transaction code for an issuance offer that requires one.

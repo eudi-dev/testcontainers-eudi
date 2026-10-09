@@ -14,7 +14,7 @@ List<Credential> pids = client.getCredentialsByType("urn:eudi:pid:1");
 
 ## Issuing
 
-The wallet issues credentials with its own issuer key and imports them directly, no separate issuer needed. Issue from one of the pre-defined templates (`pid-sdjwt`, `pid-mdoc`, `german-pid-sdjwt`, `german-pid-mdoc`), a saved template, or free-form:
+The wallet issues credentials with its own issuer key and imports them directly, no separate issuer needed. Issue from one of the pre-defined templates (such as `pid-sdjwt`, `pid-mdoc`, `german-pid-sdjwt`, `italian-pid-sdjwt`, `dutch-pid-mdoc` or `demo-ticket`), a saved template, or free-form:
 
 ```java
 // From a pre-defined template, overriding individual claims
@@ -62,12 +62,63 @@ Credential issued = client.issueCredential(IssueRequest.fromTemplate("my-credent
 client.deleteTemplate("my-credential");
 ```
 
+`withUniqueClaims(...)` gives a claim a random value in every credential, for example an opaque subject identifier:
+
+```java
+client.saveTemplate(CredentialTemplate.named("employee-card")
+    .withFormat("sdjwt")
+    .withVct("urn:example:employee:1")
+    .withClaims(Map.of("sub", "placeholder", "employee_id", "E-1"))
+    .withUniqueClaims(List.of("sub")));
+```
+
+To add a user template to the registrar's [attestation catalogue](registrar.md#attestation-catalogue), pass a catalogue entry when you save it. The entry takes its format, type and claims from the template, and its name from the template's display name or the template name:
+
+```java
+client.saveTemplate(template, CatalogEntry.forTemplate()
+    .rulebook("https://example.com/employee-rulebook"));
+
+// or while issuing
+client.issueCredential(IssueRequest.sdJwt("urn:example:badge:1")
+    .claim("badge", "gold")
+    .saveAsTemplate("badge", CatalogEntry.named("Badge")));
+```
+
+If the catalogue refuses the entry, for example because its name is taken, the wallet saves neither the template nor the entry. Deleting the template keeps the entry. Delete it with `deleteCatalogAttestation(id)`.
+
 To ship a project folder of template JSON files into the container, use `withTemplatesDirectory(Path)`:
 
 ```java
 EudiWalletContainer wallet = new EudiWalletContainer()
     .withTemplatesDirectory(Path.of("src/test/resources/templates"));
 ```
+
+## Startup credentials
+
+`withStartupCredentials(Path)` adds credentials on every start. It takes a YAML or JSON file, or a directory of such files. An entry issues a credential from a template or imports a finished one. Its `id` becomes the credential ID:
+
+```yaml
+credentials:
+  - id: employee-alice
+    template: employee-card       # from withTemplatesDirectory(...)
+    claims:
+      employee_id: E-2
+  - id: erika
+    template: german-pid-sdjwt
+    exp: 2160h
+  - id: partner-ticket
+    credential: eyJhbGciOiJFUzI1NiIs...~WyJ...~
+```
+
+```java
+EudiWalletContainer wallet = new EudiWalletContainer()
+    .withTemplatesDirectory(Path.of("src/test/resources/templates"))
+    .withStartupCredentials(Path.of("src/test/resources/credentials.yaml"));
+
+Credential alice = wallet.client().getCredential("employee-alice");
+```
+
+See [startup credentials](https://github.com/dominikschlosser/eudi-dev/blob/main/docs/wallet/serve.md#startup-credentials) in the eudi-dev docs for every field.
 
 ## SD-JWT credential builder
 
