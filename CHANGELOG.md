@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-beta.1] - Unreleased
+
+### Breaking changes
+
+- The default wallet image is `ghcr.io/dominikschlosser/eudi-dev:v3.0.0-beta.1`.
+- The container waits for `GET /readyz`. Wallet images before eudi-dev 2.6.0 lack it. For those, call `waitingFor(Wait.forHttp("/api/version").forPort(8085))`.
+- Some records have more components: `WalletConfig` (`keyAttestationLevel`, `requireArf`), `CredentialTemplate` (`uniqueClaims`), `ConsentRequest` (`privacyPolicies`, `findings`), `CredentialMatch` (`mismatches`, `claimSets`), `ConsentQueryOptions` (`multiple`, `nonMatching`), `ConsentSetOptions` (`unmatched`) and `PresentationResponse` (`status`, `error`, `errorDescription`, `findings`). Code that calls their canonical constructors has to pass the added values.
+- eudi-dev 3.0.0 changes some wallet behavior. In strict mode an unbound credential only matches a query that sets `require_cryptographic_holder_binding` to `false`. Debug mode offers it and marks it. The demo verifier sends its registration certificate by default. A request with `"identity": "unregistered"` leaves it out. The wallet publishes one trusted list per credential category (`pid`, `qeaa`, `pub-eaa`, `eaa`), and the `local` list is now `eaa`. The QEAA and EAA lists have the types `https://eudi-test.dev/LoTEType/QEAAProvidersList` and `EAAProvidersList`. `IssueRequest.trustProfile(...)` is now `category(...)`. A credential without a category is an EAA. See the [eudi-dev changelog](https://github.com/dominikschlosser/eudi-dev/blob/3.0.0/CHANGELOG.md).
+
+### Added
+
+- Registrar client. `registerRelyingParty(RelyingPartyRegistration)` registers a verifier or an issuer. `issueAccessCertificate` and `issueRegistrationCertificate` issue its certificates, with the `verifier_info` or `issuer_info` value. `revokeRegistrationCertificates` and `activateRegistrationCertificates` change their status. `getRelyingParties`, `getRelyingParty` and `deleteRelyingParty` manage the registrations. `getRegistrarCertificatePem()` and `getRelyingPartyAccessCaPem()` return the registrar certificate and the relying party access CA.
+- ARF checks. `withArf()` and `setRequireArf(boolean)` check the access and registration certificates of verifiers and issuers. `withRelyingPartyCa(Path)` trusts the CAs of other registrars, and `withTrustListCa(Path)` those of trusted list operators. With strict validation the wallet answers a refused verifier that signed its request with `access_denied`, and `acceptPresentationRequest` returns that response.
+- Attestation catalogue. `getCatalogAttestations()`, `addCatalogAttestation(CatalogEntry)`, `getAttestationSchema(id)` and `deleteCatalogAttestation(id)` manage it. `CatalogEntry.category(...)` sets the credential category. `saveTemplate(template, CatalogEntry)` and `IssueRequest.saveAsTemplate(name, CatalogEntry)` add a user template to it.
+- `withStartupCredentials(Path)` adds credentials from a YAML or JSON file on every start.
+- `CredentialTemplate.withUniqueClaims(...)` gives a claim a fresh random value in every credential.
+- Consent options. `ConsentApproval.pickCredentials(...)` deselects credentials of a query with `multiple`. `chooseClaimSet(...)` picks a `claim_sets` option. In debug mode `pickCredential(...)` also takes a non-matching credential.
+- Trusted lists. `addTrustedEntity`, `removeTrustedEntity`, `addTrustedList`, `removeTrustedList` and `getTrustState()` put your own CAs and external lists on the wallet's trusted lists. `withTrustedList(url)` adds a list on start (see [Trust](docs/trust.md)).
+- Findings. In debug mode `ConsentRequest.findings()` and `PresentationResponse.findings()` list the checks a verifier failed, and the offer response carries the checks an issuer failed.
+- `setKeyAttestationLevel(KeyAttestationLevel)` sets the key attestation claims at runtime.
+- `WalletClientException` carries the HTTP status code and the `error` and `error_description` fields of a refusal.
+
 ## [2.5.0] - 2026-10-02
 
 ### Added
