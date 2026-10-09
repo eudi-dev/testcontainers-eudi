@@ -21,9 +21,18 @@ import java.util.List;
  * The credentials that match one DCQL credential query. The first candidate
  * is the wallet's own choice.
  *
- * @param id         the DCQL credential query id
- * @param candidates the matching credentials in the order the wallet prefers
- *                   them
+ * @param id          the DCQL credential query id
+ * @param candidates  the matching credentials in the order the wallet prefers
+ *                    them
+ * @param multiple    whether the query sets {@code multiple}. The wallet then
+ *                    sends every candidate unless the approval picks fewer
+ * @param nonMatching in debug mode, the wallet's non-matching credentials.
+ *                    An approval can pick them to test how the verifier
+ *                    handles a wrong answer
  */
-public record ConsentQueryOptions(String id, List<CredentialMatch> candidates) {
+public record ConsentQueryOptions(
+        String id,
+        List<CredentialMatch> candidates,
+        boolean multiple,
+        List<CredentialMatch> nonMatching) {
 }

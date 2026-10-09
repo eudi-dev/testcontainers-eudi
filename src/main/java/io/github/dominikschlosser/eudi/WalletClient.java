@@ -980,10 +980,9 @@ public class WalletClient {
 
     @SuppressWarnings("unchecked")
     private static ConsentRequest toConsentRequest(Map<String, Object> raw) {
-        List<CredentialMatch> matched = raw.get("matched_credentials") instanceof List<?> rawMatches
-                ? rawMatches.stream().map(WalletClient::toCredentialMatch).collect(Collectors.toList())
-                : List.of();
+        List<CredentialMatch> matched = credentialMatches(raw.get("matched_credentials"));
         List<String> purposes = stringList(raw.get("purposes"));
+        List<String> privacyPolicies = stringList(raw.get("privacy_policies"));
         ConsentCredentialOptions options = raw.get("credential_options") instanceof Map<?, ?> rawOptions
                 ? toConsentCredentialOptions((Map<String, Object>) rawOptions)
                 : null;
@@ -995,6 +994,7 @@ public class WalletClient {
                 (String) raw.get("created_at"),
                 matched,
                 purposes,
+                privacyPolicies,
                 options
         );
     }
@@ -1008,7 +1008,10 @@ public class WalletClient {
                                 set.get("options") instanceof List<?> options
                                         ? (List<List<String>>) options
                                         : List.of(),
-                                Boolean.TRUE.equals(set.get("optional"))))
+                                Boolean.TRUE.equals(set.get("optional")),
+                                set.get("unmatched") instanceof List<?> unmatched
+                                        ? (List<Integer>) unmatched
+                                        : List.of()))
                         .collect(Collectors.toList())
                 : List.of();
         List<ConsentQueryOptions> queries = raw.get("queries") instanceof List<?> rawQueries
@@ -1016,11 +1019,9 @@ public class WalletClient {
                         .map(query -> (Map<String, Object>) query)
                         .map(query -> new ConsentQueryOptions(
                                 (String) query.get("id"),
-                                query.get("candidates") instanceof List<?> candidates
-                                        ? candidates.stream()
-                                                .map(WalletClient::toCredentialMatch)
-                                                .collect(Collectors.toList())
-                                        : List.of()))
+                                credentialMatches(query.get("candidates")),
+                                Boolean.TRUE.equals(query.get("multiple")),
+                                credentialMatches(query.get("non_matching"))))
                         .collect(Collectors.toList())
                 : List.of();
         return new ConsentCredentialOptions(sets, queries);
@@ -1044,8 +1045,19 @@ public class WalletClient {
                 stringList(map.get("selected_keys")),
                 Boolean.TRUE.equals(map.get("untrusted_authority")),
                 stringList(map.get("empty_array_claims")),
-                stringList(map.get("missing_claims"))
+                stringList(map.get("missing_claims")),
+                stringList(map.get("mismatches")),
+                mapList(map.get("claim_sets"), claimSet -> new ConsentClaimSet(
+                        asInt(claimSet.get("index")),
+                        stringList(claimSet.get("keys")),
+                        asMap(claimSet.get("claims"))))
         );
+    }
+
+    private static List<CredentialMatch> credentialMatches(Object raw) {
+        return raw instanceof List<?> list
+                ? list.stream().map(WalletClient::toCredentialMatch).collect(Collectors.toList())
+                : List.of();
     }
 
     private static RelyingParty toRelyingParty(Map<String, Object> raw) {

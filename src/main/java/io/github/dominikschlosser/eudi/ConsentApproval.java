@@ -36,8 +36,9 @@ import java.util.TreeMap;
 public final class ConsentApproval {
 
     private final Map<String, List<String>> selectedClaims = new LinkedHashMap<>();
-    private final Map<String, String> picks = new LinkedHashMap<>();
+    private final Map<String, Object> picks = new LinkedHashMap<>();
     private final TreeMap<Integer, Integer> setChoices = new TreeMap<>();
+    private final Map<String, Integer> claimSets = new LinkedHashMap<>();
     private String txCode;
 
     /**
@@ -68,10 +69,31 @@ public final class ConsentApproval {
     /**
      * Presents the given credential for one DCQL credential query instead of
      * the wallet's first choice. The credential must be one of the query's
-     * {@link ConsentQueryOptions#candidates()}.
+     * {@link ConsentQueryOptions#candidates()}, or in debug mode one of its
+     * {@link ConsentQueryOptions#nonMatching()} credentials.
      */
     public ConsentApproval pickCredential(String queryId, String credentialId) {
         picks.put(queryId, credentialId);
+        return this;
+    }
+
+    /**
+     * Presents only the given credentials for a query that sets
+     * {@code multiple}, instead of every candidate. At least one must stay.
+     */
+    public ConsentApproval pickCredentials(String queryId, String... credentialIds) {
+        picks.put(queryId, List.of(credentialIds));
+        return this;
+    }
+
+    /**
+     * Answers a query with the {@code claim_sets} option at the given index
+     * instead of the wallet's first choice. The index is a
+     * {@link ConsentClaimSet#index()} of the picked credential. Debug mode
+     * only.
+     */
+    public ConsentApproval chooseClaimSet(String queryId, int claimSetIndex) {
+        claimSets.put(queryId, claimSetIndex);
         return this;
     }
 
@@ -118,6 +140,9 @@ public final class ConsentApproval {
                 choices.add(setChoices.getOrDefault(i, 0));
             }
             body.put("set_choices", choices);
+        }
+        if (!claimSets.isEmpty()) {
+            body.put("claim_sets", claimSets);
         }
         if (txCode != null) {
             body.put("tx_code", txCode);

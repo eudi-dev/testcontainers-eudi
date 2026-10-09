@@ -35,6 +35,8 @@ import java.util.List;
  *                           first choice per credential query
  * @param purposes           the purposes the verifier registered for this
  *                           data request, if any
+ * @param privacyPolicies    the privacy policy URLs from the verifier's
+ *                           registration certificates, if any
  * @param credentialOptions  every credential the wallet could present
  *                           instead, {@code null} for an issuance request or
  *                           when there is nothing to choose
@@ -47,14 +49,15 @@ public record ConsentRequest(
         String createdAt,
         List<CredentialMatch> matchedCredentials,
         List<String> purposes,
+        List<String> privacyPolicies,
         ConsentCredentialOptions credentialOptions) {
 
     /**
-     * Creates a consent request without the selection details, matching the
-     * constructor of releases before 2.4.0. Matched credentials and purposes
-     * are empty and credential options are absent.
+     * Creates a consent request without the selection details. Matched
+     * credentials, purposes and privacy policies are empty and credential
+     * options are absent.
      */
     public ConsentRequest(String id, String type, String status, String clientId, String createdAt) {
-        this(id, type, status, clientId, createdAt, List.of(), List.of(), null);
+        this(id, type, status, clientId, createdAt, List.of(), List.of(), List.of(), null);
     }
 }

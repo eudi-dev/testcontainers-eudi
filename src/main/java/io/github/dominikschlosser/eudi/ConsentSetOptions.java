@@ -23,8 +23,10 @@ import java.util.List;
  * @param options  the satisfiable options in the order the wallet prefers
  *                 them, each a list of credential query ids that answer the
  *                 set together
- * @param optional whether the set may be skipped entirely
- *                 ({@code required: false})
+ * @param optional  whether the set may be skipped entirely
+ *                  ({@code required: false})
+ * @param unmatched in debug mode, the indexes of the options without a
+ *                  matching credential
  */
-public record ConsentSetOptions(List<List<String>> options, boolean optional) {
+public record ConsentSetOptions(List<List<String>> options, boolean optional, List<Integer> unmatched) {
 }

@@ -38,6 +38,11 @@ import java.util.Map;
  *                           disclosed as an empty array
  * @param missingClaims      requested claim paths this credential cannot
  *                           satisfy
+ * @param mismatches         in debug mode, the reasons why a non-matching
+ *                           credential does not match the query
+ * @param claimSets          the satisfied {@code claim_sets} options of the
+ *                           query, offered in debug mode when there is more
+ *                           than one. The first is the wallet's own choice
  */
 public record CredentialMatch(
         String queryId,
@@ -49,5 +54,7 @@ public record CredentialMatch(
         List<String> selectedKeys,
         boolean untrustedAuthority,
         List<String> emptyArrayClaims,
-        List<String> missingClaims) {
+        List<String> missingClaims,
+        List<String> mismatches,
+        List<ConsentClaimSet> claimSets) {
 }

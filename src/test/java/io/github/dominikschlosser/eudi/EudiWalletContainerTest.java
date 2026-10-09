@@ -1049,6 +1049,125 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void interactiveConsentDeselectsCredentialsOfAMultipleQuery() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+            Credential second = client.issueCredential(IssueRequest.fromTemplate("pid-sdjwt")
+                    .claim("given_name", "Second"));
+
+            Map<String, Object> request = createVerifierRequest(consentWallet,
+                    "{\"type\": \"pid\", \"format\": \"sd-jwt\", \"multiple\": true}");
+            CompletableFuture<PresentationResponse> submitted =
+                    client.submitPresentationRequestForConsent((String) request.get("scheme_uri"));
+
+            ConsentRequest pending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            ConsentQueryOptions query = pending.credentialOptions().query("pid");
+            assertThat(query.multiple()).isTrue();
+            assertThat(query.candidates()).extracting(CredentialMatch::credentialId)
+                    .hasSizeGreaterThanOrEqualTo(2)
+                    .contains(second.id());
+
+            ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .pickCredentials("pid", second.id()));
+            assertThat(result.status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+
+            assertThat(sentCredentials(client)).extracting(sent -> sent.get("id")).containsExactly(second.id());
+        }
+    }
+
+    @Test
+    void debugModeOffersNonMatchingCredentials() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+
+            // the wallet holds no demo ticket, so nothing matches the query
+            Map<String, Object> request = createVerifierRequest(consentWallet, "{\"type\": \"ticket\"}");
+            CompletableFuture<PresentationResponse> submitted =
+                    client.submitPresentationRequestForConsent((String) request.get("scheme_uri"));
+
+            ConsentRequest pending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            ConsentQueryOptions query = pending.credentialOptions().query("ticket");
+            assertThat(query.candidates()).isEmpty();
+            CredentialMatch pid = query.nonMatching().stream()
+                    .filter(match -> "dc+sd-jwt".equals(match.format()))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(pid.mismatches()).anyMatch(reason -> reason.contains("urn:eudi-test:demo-ticket:1"));
+
+            ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .pickCredential("ticket", pid.credentialId()));
+            assertThat(result.status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+
+            assertThat(sentCredentials(client)).extracting(sent -> sent.get("id")).containsExactly(pid.credentialId());
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            assertThat(status.get("status")).isEqualTo("failed");
+        }
+    }
+
+    @Test
+    void debugModeLetsTheApprovalChooseAClaimSet() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+
+            String dcql = MAPPER.writeValueAsString(Map.of("credentials", List.of(Map.of(
+                    "id", "pid",
+                    "format", "dc+sd-jwt",
+                    "meta", Map.of("vct_values", List.of("urn:eudi:pid:1")),
+                    "claims", List.of(
+                            Map.of("id", "given", "path", List.of("given_name")),
+                            Map.of("id", "family", "path", List.of("family_name"))),
+                    "claim_sets", List.of(List.of("given"), List.of("family"))))));
+            // an unsigned request whose response goes to an unknown path of
+            // the wallet itself, so the flow ends right after the approval
+            String responseUri = "http://localhost:8085/no-verifier";
+            String uri = "openid4vp://?client_id=" + urlEncode("redirect_uri:" + responseUri)
+                    + "&response_type=vp_token&response_mode=direct_post&nonce=claim-set-test"
+                    + "&response_uri=" + urlEncode(responseUri)
+                    + "&dcql_query=" + urlEncode(dcql);
+            CompletableFuture<PresentationResponse> submitted = client.submitPresentationRequestForConsent(uri);
+
+            ConsentRequest pending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            CredentialMatch candidate = pending.credentialOptions().query("pid").candidates().getFirst();
+            assertThat(candidate.claimSets()).extracting(ConsentClaimSet::keys)
+                    .containsExactly(List.of("given_name"), List.of("family_name"));
+
+            assertThatThrownBy(() -> client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .chooseClaimSet("pid", 7)))
+                    .isInstanceOf(WalletClientException.class)
+                    .hasMessageContaining("400");
+            ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .chooseClaimSet("pid", candidate.claimSets().get(1).index()));
+            assertThat(result.status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+
+            assertThat(sentCredentials(client)).singleElement()
+                    .satisfies(sent -> assertThat(sent.get("disclosed")).isEqualTo(List.of("family_name")));
+        }
+    }
+
+    private static String urlEncode(String value) {
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Returns what the wallet sent in its latest presentation, from the
+     * activity log.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> sentCredentials(WalletClient client) {
+        return client.getActivityLog().stream()
+                .filter(entry -> entry.details().get("sent_credentials") instanceof List)
+                .reduce((first, second) -> second)
+                .map(entry -> (List<Map<String, Object>>) entry.details().get("sent_credentials"))
+                .orElseThrow();
+    }
+
+    @Test
     void offerRequiringTransactionCodeNeedsTheCode() throws Exception {
         WalletClient client = wallet.client();
 
