@@ -132,7 +132,19 @@ public class WalletClient {
      * template's name overrides it.
      */
     public CredentialTemplate saveTemplate(CredentialTemplate template) {
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        return saveTemplate(template, null);
+    }
+
+    /**
+     * Saves a user template like {@link #saveTemplate(CredentialTemplate)}
+     * and adds it to the attestation catalogue (since eudi-dev v3.0.0). Only
+     * an SD-JWT VC template with a {@code vct} or an mdoc template with a
+     * doctype can be added. If the catalogue refuses the entry, for example
+     * because its name is taken, the wallet saves neither. Deleting the
+     * template keeps the entry.
+     */
+    public CredentialTemplate saveTemplate(CredentialTemplate template, CatalogEntry catalogEntry) {
+        Map<String, Object> body = new LinkedHashMap<>();
         if (template.description() != null) {
             body.put("description", template.description());
         }
@@ -155,6 +167,12 @@ public class WalletClient {
         if (template.alwaysDisclosed() != null && !template.alwaysDisclosed().isEmpty()) {
             body.put("always_disclosed", template.alwaysDisclosed());
         }
+        if (template.uniqueClaims() != null && !template.uniqueClaims().isEmpty()) {
+            body.put("unique_claims", template.uniqueClaims());
+        }
+        if (catalogEntry != null) {
+            body.put("catalog", catalogEntry.toBody());
+        }
         String response = putJson(baseUrl + "/api/templates/" + urlEncode(template.name()), toJson(body));
         return toTemplate(parseObject(response, "template response"));
     }
@@ -166,6 +184,49 @@ public class WalletClient {
      */
     public void deleteTemplate(String name) {
         delete(baseUrl + "/api/templates/" + urlEncode(name));
+    }
+
+    /**
+     * Returns the registrar's attestation catalogue with names and types
+     * (since eudi-dev v3.0.0). Every predefined template is in it.
+     */
+    public List<CatalogAttestation> getCatalogAttestations() {
+        String body = get(baseUrl + "/api/catalog/attestations");
+        try {
+            List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            return raw.stream()
+                    .map(WalletClient::toCatalogAttestation)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse catalogue response", e);
+        }
+    }
+
+    /**
+     * Adds an attestation type to the catalogue. The catalogue assigns its
+     * schema id and schema URLs.
+     */
+    public CatalogAttestation addCatalogAttestation(CatalogEntry entry) {
+        String body = postJson(baseUrl + "/api/catalog/attestations", toJson(entry.toBody()));
+        return toCatalogAttestation(parseObject(body, "catalogue response"));
+    }
+
+    /**
+     * Returns the {@code SchemaMeta} of a catalogue entry
+     * ({@code GET /api/catalog/schemas/{id}}, EC TS11 v1.0 §5.3.1).
+     */
+    public AttestationSchema getAttestationSchema(String id) {
+        Map<String, Object> response = parseObject(
+                getJson(baseUrl + "/api/catalog/schemas/" + urlEncode(id)), "attestation schema response");
+        return toAttestationSchema(asMap(response.get("data")));
+    }
+
+    /**
+     * Deletes an added catalogue entry (EC TS11 v1.0 §5.3.3). The entries of
+     * predefined templates can't be deleted.
+     */
+    public void deleteCatalogAttestation(String id) {
+        delete(baseUrl + "/api/catalog/schemas/" + urlEncode(id));
     }
 
     /**
@@ -901,6 +962,7 @@ public class WalletClient {
                 (String) raw.get("exp"),
                 (Map<String, Object>) raw.getOrDefault("claims", Map.of()),
                 (List<String>) raw.getOrDefault("always_disclosed", List.of()),
+                (List<String>) raw.getOrDefault("unique_claims", List.of()),
                 Boolean.TRUE.equals(raw.get("predefined"))
         );
     }
@@ -1020,6 +1082,42 @@ public class WalletClient {
                 ? ClaimPaths.toClaim(format, type, path)
                 : null);
         return new RegisteredCredential(format, type, claims);
+    }
+
+    private static CatalogAttestation toCatalogAttestation(Map<String, Object> raw) {
+        return new CatalogAttestation(
+                (String) raw.get("name"),
+                mapList(raw.get("credentials"), credential -> {
+                    CredentialFormat format = CredentialFormat.fromWireValue((String) credential.get("format"));
+                    String type = (String) credential.get("type");
+                    List<String> claims = credential.get("claims") instanceof List<?> paths
+                            ? paths.stream()
+                                    .map(path -> ClaimPaths.toClaim(format, type, (List<?>) path))
+                                    .collect(Collectors.toList())
+                            : List.of();
+                    return new RegisteredCredential(format, type, claims);
+                }),
+                toAttestationSchema(asMap(raw.get("schema"))),
+                (String) raw.get("category"),
+                Boolean.TRUE.equals(raw.get("template")));
+    }
+
+    private static AttestationSchema toAttestationSchema(Map<String, Object> raw) {
+        Map<String, String> schemaUris = new LinkedHashMap<>();
+        mapList(raw.get("schemaURIs"), Function.identity())
+                .forEach(uri -> schemaUris.put((String) uri.get("formatIdentifier"), (String) uri.get("uri")));
+        return new AttestationSchema(
+                (String) raw.get("id"),
+                (String) raw.get("version"),
+                (String) raw.get("rulebookURI"),
+                mapList(raw.get("trustedAuthorities"), authority -> new TrustedAuthority(
+                        (String) authority.get("frameworkType"),
+                        (String) authority.get("value"),
+                        Boolean.TRUE.equals(authority.get("isLOTE")))),
+                (String) raw.get("attestationLoS"),
+                (String) raw.get("bindingType"),
+                stringList(raw.get("supportedFormats")),
+                schemaUris);
     }
 
     private static String firstField(Object list, String field) {

@@ -681,6 +681,82 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void savedTemplateCanJoinTheAttestationCatalogue() {
+        WalletClient client = wallet.client();
+        Credential issued = null;
+        try {
+            client.saveTemplate(CredentialTemplate.named("catalogue-template")
+                            .withFormat("sdjwt")
+                            .withVct("urn:test:catalogue-template:1")
+                            .withClaims(Map.of("employee_id", "E-1")),
+                    CatalogEntry.forTemplate().rulebook("https://example.com/employee-rulebook"));
+
+            CatalogAttestation entry = catalogueEntry(client, "catalogue-template");
+            assertThat(entry.credentials()).containsExactly(new RegisteredCredential(
+                    CredentialFormat.SD_JWT, "urn:test:catalogue-template:1", List.of("employee_id")));
+            assertThat(entry.schema().rulebookUri()).isEqualTo("https://example.com/employee-rulebook");
+
+            // the name is taken, so the wallet saves neither the entry nor the template
+            assertThatThrownBy(() -> client.saveTemplate(CredentialTemplate.named("catalogue-template-copy")
+                            .withFormat("sdjwt")
+                            .withVct("urn:test:catalogue-template-copy:1")
+                            .withClaims(Map.of("employee_id", "E-2")),
+                    CatalogEntry.named("catalogue-template")))
+                    .isInstanceOf(WalletClientException.class)
+                    .hasMessageContaining("already lists");
+            assertThatThrownBy(() -> client.getTemplate("catalogue-template-copy"))
+                    .isInstanceOf(WalletClientException.class);
+
+            issued = client.issueCredential(IssueRequest.sdJwt("urn:test:issued-template:1")
+                    .claim("badge", "gold")
+                    .saveAsTemplate("issued-template", CatalogEntry.named("Issued badge")));
+            assertThat(catalogueEntry(client, "Issued badge").credentials())
+                    .extracting(RegisteredCredential::type)
+                    .containsExactly("urn:test:issued-template:1");
+        } finally {
+            if (issued != null) {
+                client.deleteCredential(issued.id());
+            }
+            client.deleteTemplate("catalogue-template");
+            client.deleteTemplate("issued-template");
+            client.getCatalogAttestations().stream()
+                    .filter(entry -> List.of("catalogue-template", "Issued badge").contains(entry.name()))
+                    .forEach(entry -> client.deleteCatalogAttestation(entry.id()));
+        }
+    }
+
+    @Test
+    void uniqueClaimsGetANewValueInEveryCredential() {
+        WalletClient client = wallet.client();
+        CredentialTemplate saved = client.saveTemplate(CredentialTemplate.named("unique-template")
+                .withFormat("sdjwt")
+                .withVct("urn:test:unique:1")
+                .withClaims(Map.of("sub", "placeholder", "name", "Unique"))
+                .withUniqueClaims(List.of("sub")));
+        try {
+            assertThat(saved.uniqueClaims()).containsExactly("sub");
+
+            Credential first = client.issueCredential(IssueRequest.fromTemplate("unique-template"));
+            Credential second = client.issueCredential(IssueRequest.fromTemplate("unique-template"));
+
+            assertThat(first.claims().get("sub"))
+                    .isNotEqualTo("placeholder")
+                    .isNotEqualTo(second.claims().get("sub"));
+            client.deleteCredential(first.id());
+            client.deleteCredential(second.id());
+        } finally {
+            client.deleteTemplate("unique-template");
+        }
+    }
+
+    private static CatalogAttestation catalogueEntry(WalletClient client, String name) {
+        return client.getCatalogAttestations().stream()
+                .filter(entry -> name.equals(entry.name()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @Test
     void configExposesInstanceIntrospection() {
         WalletConfig config = wallet.client().getConfig();
 

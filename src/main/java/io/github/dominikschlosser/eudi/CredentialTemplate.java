@@ -34,6 +34,9 @@ import java.util.Map;
  * @param exp             default expiry as a Go duration string (e.g. {@code 24h})
  * @param claims          the claim set
  * @param alwaysDisclosed SD-JWT claims embedded plainly instead of selectively disclosable
+ * @param uniqueClaims    claims with a fresh random value in every
+ *                        credential, such as an opaque subject identifier
+ *                        (since eudi-dev v3.0.0)
  * @param predefined      whether the template is compiled into eudi-dev
  */
 public record CredentialTemplate(
@@ -46,42 +49,47 @@ public record CredentialTemplate(
         String exp,
         Map<String, Object> claims,
         List<String> alwaysDisclosed,
+        List<String> uniqueClaims,
         boolean predefined
 ) {
 
     public static CredentialTemplate named(String name) {
-        return new CredentialTemplate(name, null, null, null, null, null, null, Map.of(), List.of(), false);
+        return new CredentialTemplate(name, null, null, null, null, null, null, Map.of(), List.of(), List.of(), false);
     }
 
     public CredentialTemplate withDescription(String description) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withFormat(String format) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withVct(String vct) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withDocType(String docType) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withNamespace(String namespace) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withExp(String exp) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withClaims(Map<String, Object> claims) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 
     public CredentialTemplate withAlwaysDisclosed(List<String> alwaysDisclosed) {
-        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, predefined);
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
+    }
+
+    public CredentialTemplate withUniqueClaims(List<String> uniqueClaims) {
+        return new CredentialTemplate(name, description, format, vct, docType, namespace, exp, claims, alwaysDisclosed, uniqueClaims, predefined);
     }
 }

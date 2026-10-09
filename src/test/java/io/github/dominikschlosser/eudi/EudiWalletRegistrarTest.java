@@ -177,6 +177,58 @@ class EudiWalletRegistrarTest {
         assertThat(client.getRelyingPartyAccessCaPem()).startsWith("-----BEGIN CERTIFICATE-----");
     }
 
+    @Test
+    void attestationTypesCanBeAddedToTheCatalogueAndDeleted() {
+        WalletClient client = wallet.client();
+        assertThat(client.getCatalogAttestations()).filteredOn(CatalogAttestation::template)
+                .extracting(CatalogAttestation::name)
+                .contains("EUDI PID", "Demo Event Ticket");
+
+        CatalogAttestation diploma = client.addCatalogAttestation(CatalogEntry.named("University diploma")
+                .credential(CredentialFormat.SD_JWT, "urn:example:diploma:1", "degree", "address.locality")
+                .category("qeaa")
+                .rulebook("https://example.com/diploma-rulebook")
+                .levelOfSecurity("iso_18045_moderate")
+                .trustedList("https://example.com/diploma-issuers"));
+        try {
+            assertThat(diploma.template()).isFalse();
+            assertThat(diploma.category()).isEqualTo("qeaa");
+            assertThat(diploma.credentials()).containsExactly(new RegisteredCredential(
+                    CredentialFormat.SD_JWT, "urn:example:diploma:1", List.of("degree", "address.locality")));
+            assertThat(client.getCatalogAttestations()).contains(diploma);
+
+            AttestationSchema schema = client.getAttestationSchema(diploma.id());
+            assertThat(schema).isEqualTo(diploma.schema());
+            assertThat(schema.rulebookUri()).isEqualTo("https://example.com/diploma-rulebook");
+            assertThat(schema.attestationLoS()).isEqualTo("iso_18045_moderate");
+            assertThat(schema.bindingType()).isEqualTo("key");
+            assertThat(schema.supportedFormats()).containsExactly("dc+sd-jwt");
+            assertThat(schema.trustedAuthorities()).containsExactly(
+                    new TrustedAuthority("etsi_tl", "https://example.com/diploma-issuers", true));
+            assertThat(schema.schemaUris().get("dc+sd-jwt"))
+                    .endsWith("/api/catalog/schemas/" + diploma.id() + "/dc+sd-jwt");
+        } finally {
+            client.deleteCatalogAttestation(diploma.id());
+        }
+
+        assertThat(client.getCatalogAttestations()).extracting(CatalogAttestation::id).doesNotContain(diploma.id());
+    }
+
+    @Test
+    void predefinedCatalogueEntriesCannotBeDeleted() {
+        WalletClient client = wallet.client();
+        CatalogAttestation pid = client.getCatalogAttestations().stream()
+                .filter(entry -> "EUDI PID".equals(entry.name()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(pid.credentials()).extracting(RegisteredCredential::type)
+                .contains(PID_VCT, "eu.europa.ec.eudi.pid.1");
+        assertThatThrownBy(() -> client.deleteCatalogAttestation(pid.id()))
+                .isInstanceOf(WalletClientException.class)
+                .hasMessageContaining("403");
+    }
+
     private static RelyingParty registerShop(WalletClient client) {
         // the demo verifier's SD-JWT PID request asks for these two claims
         return client.registerRelyingParty(RelyingPartyRegistration.verifier("Example Shop")

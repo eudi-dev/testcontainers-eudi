@@ -47,6 +47,7 @@ public class IssueRequest {
     private final List<String> omit = new ArrayList<>();
     private final List<String> alwaysDisclosed = new ArrayList<>();
     private String saveAsTemplate;
+    private CatalogEntry catalogEntry;
     private String vct;
     private String docType;
     private String namespace;
@@ -142,6 +143,17 @@ public class IssueRequest {
         return this;
     }
 
+    /**
+     * Saves the issued parameters as a reusable template and adds the
+     * template to the attestation catalogue (since eudi-dev v3.0.0). If the
+     * catalogue refuses the entry, the wallet issues nothing.
+     */
+    public IssueRequest saveAsTemplate(String templateName, CatalogEntry catalogEntry) {
+        this.saveAsTemplate = templateName;
+        this.catalogEntry = catalogEntry;
+        return this;
+    }
+
     public IssueRequest vct(String vct) {
         this.vct = vct;
         return this;
@@ -229,6 +241,9 @@ public class IssueRequest {
         }
         if (saveAsTemplate != null) {
             body.put("save_as_template", saveAsTemplate);
+        }
+        if (catalogEntry != null) {
+            body.put("catalog", catalogEntry.toBody());
         }
         if (vct != null) {
             body.put("vct", vct);
