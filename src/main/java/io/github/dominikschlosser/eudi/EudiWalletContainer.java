@@ -47,6 +47,9 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     // The wallet runs as a non-root user. It can't read a copied host file
     // with owner-only permissions, such as a temp file.
     private static final int READABLE_FILE_MODE = 0644;
+    private static final int READABLE_DIRECTORY_MODE = 0755;
+    private static final String CONTAINER_STARTUP_CREDENTIALS_FILE = "/startup-credentials.yaml";
+    private static final String CONTAINER_STARTUP_CREDENTIALS_DIR = "/startup-credentials";
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
@@ -63,6 +66,7 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private String vciRedirectUri;
     private boolean templatesDirectoryMounted = false;
     private final List<String> relyingPartyCas = new ArrayList<>();
+    private String startupCredentials;
     private PidClaims customPidClaims;
     private String customPidJson;
     private String pidType;
@@ -188,6 +192,22 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         String target = CONTAINER_RELYING_PARTY_CA_DIR + "/ca-" + relyingPartyCas.size() + ".pem";
         withCopyFileToContainer(MountableFile.forHostPath(pemFile, READABLE_FILE_MODE), target);
         relyingPartyCas.add(target);
+        return this;
+    }
+
+    /**
+     * Copies a YAML or JSON credentials file, or a directory of such files,
+     * into the container and adds those credentials on start
+     * ({@code --credentials}, since eudi-dev v3.0.0). An entry issues a
+     * credential from a template or imports a finished one. Its {@code id}
+     * becomes the credential ID.
+     */
+    public EudiWalletContainer withStartupCredentials(Path hostPath) {
+        boolean directory = Files.isDirectory(hostPath);
+        String target = directory ? CONTAINER_STARTUP_CREDENTIALS_DIR : CONTAINER_STARTUP_CREDENTIALS_FILE;
+        int mode = directory ? READABLE_DIRECTORY_MODE : READABLE_FILE_MODE;
+        withCopyFileToContainer(MountableFile.forHostPath(hostPath, mode), target);
+        this.startupCredentials = target;
         return this;
     }
 
@@ -328,6 +348,10 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         for (String ca : relyingPartyCas) {
             flags.add("--relying-party-ca");
             flags.add(ca);
+        }
+        if (startupCredentials != null) {
+            flags.add("--credentials");
+            flags.add(startupCredentials);
         }
         if (vciVersion != null) {
             flags.add("--vci-version");

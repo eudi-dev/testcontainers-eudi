@@ -204,6 +204,54 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void startupCredentialsFileAddsCredentialsOnStart() throws Exception {
+        Path credentials = Files.createTempFile("startup-credentials", ".yaml");
+        Files.writeString(credentials, """
+                credentials:
+                  - id: startup-pid
+                    template: pid-sdjwt
+                    claims:
+                      given_name: STARTUP
+                  - id: startup-ticket
+                    template: demo-ticket
+                """);
+
+        try (EudiWalletContainer startupWallet = new EudiWalletContainer()
+                .withoutDefaultPid()
+                .withStartupCredentials(credentials)) {
+            startupWallet.start();
+            WalletClient client = startupWallet.client();
+
+            assertThat(client.getCredentials()).extracting(Credential::id)
+                    .containsExactlyInAnyOrder("startup-pid", "startup-ticket");
+            assertThat(client.getCredential("startup-pid").claims()).containsEntry("given_name", "STARTUP");
+            assertThat(client.getCredential("startup-ticket").type()).isEqualTo("urn:eudi-test:demo-ticket:1");
+        }
+    }
+
+    @Test
+    void startupCredentialsDirectoryReadsEveryFile() throws Exception {
+        Path directory = Files.createTempDirectory("startup-credentials");
+        Files.writeString(directory.resolve("a-pid.yaml"), """
+                credentials:
+                  - id: startup-pid
+                    template: pid-sdjwt
+                """);
+        Files.writeString(directory.resolve("b-ticket.json"), """
+                {"credentials": [{"id": "startup-ticket", "template": "demo-ticket"}]}
+                """);
+
+        try (EudiWalletContainer startupWallet = new EudiWalletContainer()
+                .withPidClaims(new SdJwtPidClaims().givenName("MAX"))
+                .withStartupCredentials(directory)) {
+            startupWallet.start();
+
+            assertThat(startupWallet.listCredentials()).extracting(Credential::id)
+                    .contains("startup-pid", "startup-ticket");
+        }
+    }
+
+    @Test
     void germanPidTypeGeneratesGermanPid() {
         try (EudiWalletContainer germanWallet = new EudiWalletContainer()
                 .withPidType("urn:eudi:pid:de:1")
