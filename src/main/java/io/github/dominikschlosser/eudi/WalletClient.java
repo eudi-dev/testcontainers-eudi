@@ -26,8 +26,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -193,6 +196,183 @@ public class WalletClient {
      */
     public String getTlsCertificateJwks() {
         return get(baseUrl + "/api/certificates/tls?format=jwks");
+    }
+
+    /**
+     * Returns the registrar certificate as PEM. It signs registration
+     * certificates and registrar responses.
+     */
+    public String getRegistrarCertificatePem() {
+        return get(baseUrl + "/api/certificates/registrar");
+    }
+
+    /**
+     * Returns the relying party access CA as PEM. It signs the access
+     * certificates of registered relying parties.
+     */
+    public String getRelyingPartyAccessCaPem() {
+        return get(baseUrl + "/api/certificates/relying-party-access-ca");
+    }
+
+    /**
+     * Registers a verifier or an issuer with the wallet's registrar
+     * ({@code POST /api/registrar/wrp}, since eudi-dev v3.0.0). The returned
+     * registration contains the assigned identifiers.
+     */
+    public RelyingParty registerRelyingParty(RelyingPartyRegistration registration) {
+        String body = postJson(baseUrl + "/api/registrar/wrp", toJson(registration.toBody()));
+        return toRelyingParty(parseObject(body, "relying party response"));
+    }
+
+    /**
+     * Returns every registration. The wallet's own issuer comes first.
+     */
+    public List<RelyingParty> getRelyingParties() {
+        List<RelyingParty> parties = new ArrayList<>();
+        String cursor = "0";
+        while (cursor != null) {
+            Map<String, Object> page = parseObject(
+                    getJson(baseUrl + "/api/registrar/wrp?limit=100&cursor=" + urlEncode(cursor)),
+                    "relying parties response");
+            if (page.get("data") instanceof List<?> data) {
+                data.forEach(entry -> parties.add(toRelyingParty(asMap(entry))));
+            }
+            cursor = (String) asMap(page.get("pagination")).get("next_cursor");
+        }
+        return parties;
+    }
+
+    public RelyingParty getRelyingParty(String identifier) {
+        Map<String, Object> response = parseObject(
+                getJson(baseUrl + "/api/registrar/wrp/" + urlEncode(identifier)), "relying party response");
+        return toRelyingParty(asMap(response.get("data")));
+    }
+
+    /**
+     * Deletes a registration and revokes its registration certificates.
+     */
+    public void deleteRelyingParty(String identifier) {
+        delete(baseUrl + "/api/registrar/wrp/" + urlEncode(identifier));
+    }
+
+    /**
+     * Issues an access certificate for the public key of a PEM certificate
+     * signing request. The key must be P-256. Each DNS name adds an
+     * {@code x509_san_dns} client identifier.
+     */
+    public AccessCertificate issueAccessCertificate(String identifier, String csrPem, String... dnsNames) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("identifier", identifier);
+        body.put("csr", csrPem);
+        if (dnsNames.length > 0) {
+            body.put("dnsNames", List.of(dnsNames));
+        }
+        Map<String, Object> response = parseObject(
+                postJson(baseUrl + "/api/registrar/access-certificates", toJson(body)),
+                "access certificate response");
+        return new AccessCertificate(
+                (String) response.get("certificate"),
+                (String) response.get("chain"),
+                stringList(response.get("clientIds")));
+    }
+
+    /**
+     * Issues a registration certificate for a verifier's intended use and
+     * revokes the previous one. The result carries the
+     * {@code verifier_info} value.
+     */
+    public RegistrationCertificate issueRegistrationCertificate(String identifier, String intendedUseIdentifier) {
+        return issueRegistrationCertificate(Map.of(
+                "identifier", identifier,
+                "intendedUseIdentifier", intendedUseIdentifier));
+    }
+
+    /**
+     * Issues a registration certificate for an issuer's service and revokes
+     * the previous one. The relying party must have exactly one issuer
+     * service. The result carries the {@code issuer_info} value.
+     */
+    public RegistrationCertificate issueRegistrationCertificate(String identifier) {
+        return issueRegistrationCertificate(Map.of("identifier", identifier));
+    }
+
+    private RegistrationCertificate issueRegistrationCertificate(Map<String, Object> body) {
+        Map<String, Object> response = parseObject(
+                postJson(baseUrl + "/api/registrar/registration-certificates", toJson(body)),
+                "registration certificate response");
+        return new RegistrationCertificate(
+                (String) response.get("registrationCertificate"),
+                (String) response.get("verifierInfo"),
+                (String) response.get("issuerInfo"));
+    }
+
+    /**
+     * Returns the status list entries of the registration certificates
+     * issued for a relying party.
+     */
+    public List<RegistrationCertificateStatus> getRegistrationCertificateStatuses(String identifier) {
+        String body = get(baseUrl + "/api/registrar/registration-certificates?identifier=" + urlEncode(identifier));
+        try {
+            List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            return raw.stream()
+                    .map(status -> new RegistrationCertificateStatus(
+                            asInt(status.get("index")),
+                            (String) status.get("identifier"),
+                            (String) status.get("intendedUse"),
+                            (String) status.get("service"),
+                            Boolean.TRUE.equals(status.get("revoked")),
+                            Boolean.TRUE.equals(status.get("superseded")),
+                            status.get("expires") instanceof Number expires ? expires.longValue() : 0))
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse registration certificate statuses", e);
+        }
+    }
+
+    /**
+     * Revokes every registration certificate of a relying party and returns
+     * the number of changed certificates.
+     */
+    public int revokeRegistrationCertificates(String identifier) {
+        return setRegistrationCertificatesRevoked(identifier, null, true);
+    }
+
+    /**
+     * Revokes the registration certificates of one intended use and returns
+     * the number of changed certificates.
+     */
+    public int revokeRegistrationCertificates(String identifier, String intendedUseIdentifier) {
+        return setRegistrationCertificatesRevoked(identifier, intendedUseIdentifier, true);
+    }
+
+    /**
+     * Makes every revoked registration certificate of a relying party valid
+     * again and returns the number of changed certificates. Superseded
+     * certificates stay revoked.
+     */
+    public int activateRegistrationCertificates(String identifier) {
+        return setRegistrationCertificatesRevoked(identifier, null, false);
+    }
+
+    /**
+     * Makes the revoked registration certificates of one intended use valid
+     * again and returns the number of changed certificates.
+     */
+    public int activateRegistrationCertificates(String identifier, String intendedUseIdentifier) {
+        return setRegistrationCertificatesRevoked(identifier, intendedUseIdentifier, false);
+    }
+
+    private int setRegistrationCertificatesRevoked(String identifier, String intendedUseIdentifier, boolean revoked) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("identifier", identifier);
+        if (intendedUseIdentifier != null) {
+            body.put("intendedUseIdentifier", intendedUseIdentifier);
+        }
+        body.put("revoked", revoked);
+        Map<String, Object> response = parseObject(
+                postJson(baseUrl + "/api/registrar/registration-certificates/status", toJson(body)),
+                "registration certificate status response");
+        return asInt(response.get("changed"));
     }
 
     /**
@@ -599,6 +779,18 @@ public class WalletClient {
         return sendRequest(HttpRequest.newBuilder().uri(URI.create(url)).GET().build());
     }
 
+    /**
+     * The registrar signs its read responses unless the client asks for JSON
+     * only (TS05 v1.5 §3.2).
+     */
+    private String getJson(String url) {
+        return sendRequest(HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Accept", "application/json")
+                .GET()
+                .build());
+    }
+
     private String postJson(String url, String body) {
         return sendRequest(postJsonRequest(url, body));
     }
@@ -792,6 +984,59 @@ public class WalletClient {
                 stringList(map.get("empty_array_claims")),
                 stringList(map.get("missing_claims"))
         );
+    }
+
+    private static RelyingParty toRelyingParty(Map<String, Object> raw) {
+        List<?> identifiers = raw.get("identifier") instanceof List<?> list ? list : List.of();
+        List<String> legalNames = stringList(asMap(raw.get("legalPerson")).get("legalName"));
+        return new RelyingParty(
+                identifiers.isEmpty() ? null : (String) asMap(identifiers.getFirst()).get("identifier"),
+                (String) raw.get("tradeName"),
+                legalNames.isEmpty() ? null : legalNames.getFirst(),
+                (String) raw.get("country"),
+                (String) raw.get("registryURI"),
+                mapList(raw.get("services"), WalletClient::toRelyingPartyService));
+    }
+
+    private static RelyingPartyService toRelyingPartyService(Map<String, Object> raw) {
+        return new RelyingPartyService(
+                (String) raw.get("serviceIdentifier"),
+                (String) raw.get("serviceTradeName"),
+                stringList(raw.get("entitlements")),
+                mapList(raw.get("providesAttestations"), WalletClient::toRegisteredCredential),
+                mapList(raw.get("intendedUses"), use -> new IntendedUse(
+                        (String) use.get("intendedUseIdentifier"),
+                        firstField(use.get("purpose"), "content"),
+                        firstField(use.get("privacyPolicy"), "policyURI"),
+                        mapList(use.get("credentials"), WalletClient::toRegisteredCredential))));
+    }
+
+    private static RegisteredCredential toRegisteredCredential(Map<String, Object> raw) {
+        CredentialFormat format = CredentialFormat.fromWireValue((String) raw.get("format"));
+        Map<String, Object> meta = asMap(raw.get("meta"));
+        List<String> vcts = stringList(meta.get("vct_values"));
+        String type = vcts.isEmpty() ? (String) meta.get("doctype_value") : vcts.getFirst();
+        List<String> claims = mapList(raw.get("claims"), claim -> claim.get("path") instanceof List<?> path
+                ? ClaimPaths.toClaim(format, type, path)
+                : null);
+        return new RegisteredCredential(format, type, claims);
+    }
+
+    private static String firstField(Object list, String field) {
+        return list instanceof List<?> entries && !entries.isEmpty()
+                ? (String) asMap(entries.getFirst()).get(field)
+                : null;
+    }
+
+    private static <T> List<T> mapList(Object raw, Function<Map<String, Object>, T> mapper) {
+        return raw instanceof List<?> list
+                ? list.stream().map(WalletClient::asMap).map(mapper).collect(Collectors.toList())
+                : List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object raw) {
+        return raw instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
     }
 
     @SuppressWarnings("unchecked")
