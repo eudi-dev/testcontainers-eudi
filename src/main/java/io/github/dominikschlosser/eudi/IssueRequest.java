@@ -55,7 +55,7 @@ public class IssueRequest {
     private String nbf;
     private String statusListUri;
     private Integer statusListIdx;
-    private String trustProfile;
+    private String category;
     private String signingKey;
     private String signingCert;
 
@@ -196,10 +196,11 @@ public class IssueRequest {
 
     /**
      * Sets the credential category: {@code pid}, {@code qeaa}, {@code pub-eaa} or {@code eaa}. The credential is then on the
-     * wallet's trusted list of that category. Without it, the category of the template or the catalogue entry applies.
+     * wallet's trusted list of that category. Without it, the category of the template or the catalogue entry applies,
+     * else {@code eaa}. {@code unlisted} puts the credential on no list.
      */
-    public IssueRequest trustProfile(String trustProfile) {
-        this.trustProfile = trustProfile;
+    public IssueRequest category(String category) {
+        this.category = category;
         return this;
     }
 
@@ -266,8 +267,8 @@ public class IssueRequest {
         if (statusListIdx != null) {
             body.put("status_list_idx", statusListIdx);
         }
-        if (trustProfile != null) {
-            body.put("trust_profile", trustProfile);
+        if (category != null) {
+            body.put("category", category);
         }
         if (signingKey != null) {
             body.put("signing_key", signingKey);

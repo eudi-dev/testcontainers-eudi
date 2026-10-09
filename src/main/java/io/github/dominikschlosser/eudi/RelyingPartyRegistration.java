@@ -62,13 +62,12 @@ public class RelyingPartyRegistration {
     }
 
     /**
-     * Registers an issuer with the given trade name and the
-     * {@link ProviderEntitlement#NON_Q_EAA_PROVIDER} entitlement.
+     * Registers an issuer with the given trade name. Without
+     * {@link #entitlement(ProviderEntitlement)} the registrar gives it the
+     * entitlement of each attestation type's category in the catalogue.
      */
     public static RelyingPartyRegistration issuer(String name) {
-        RelyingPartyRegistration registration = new RelyingPartyRegistration(name);
-        registration.entitlement = ProviderEntitlement.NON_Q_EAA_PROVIDER;
-        return registration;
+        return new RelyingPartyRegistration(name);
     }
 
     /**
@@ -103,7 +102,10 @@ public class RelyingPartyRegistration {
         return this;
     }
 
-    /** Sets an issuer's entitlement. */
+    /**
+     * Sets an issuer's entitlement instead of the ones the registrar derives
+     * from the categories of its attestation types.
+     */
     public RelyingPartyRegistration entitlement(ProviderEntitlement entitlement) {
         this.entitlement = entitlement;
         return this;

@@ -44,6 +44,7 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
     private static final String CONTAINER_RELYING_PARTY_CA_DIR = "/relying-party-ca";
+    private static final String CONTAINER_TRUST_LIST_CA_DIR = "/trust-list-ca";
     // The wallet runs as a non-root user. It can't read a copied host file
     // with owner-only permissions, such as a temp file.
     private static final int READABLE_FILE_MODE = 0644;
@@ -66,6 +67,8 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private String vciRedirectUri;
     private boolean templatesDirectoryMounted = false;
     private final List<String> relyingPartyCas = new ArrayList<>();
+    private final List<String> trustListCas = new ArrayList<>();
+    private final List<String> trustedLists = new ArrayList<>();
     private String startupCredentials;
     private PidClaims customPidClaims;
     private String customPidJson;
@@ -192,6 +195,30 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         String target = CONTAINER_RELYING_PARTY_CA_DIR + "/ca-" + relyingPartyCas.size() + ".pem";
         withCopyFileToContainer(MountableFile.forHostPath(pemFile, READABLE_FILE_MODE), target);
         relyingPartyCas.add(target);
+        return this;
+    }
+
+    /**
+     * Copies a PEM file with CA certificates into the container and trusts
+     * them for the signatures of trusted lists ({@code --trust-list-ca}, since
+     * eudi-dev v3.0.0). The wallet trusts the lists it signs itself. Call it
+     * once per file. Only {@link #withArf()} checks these signatures.
+     */
+    public EudiWalletContainer withTrustListCa(Path pemFile) {
+        String target = CONTAINER_TRUST_LIST_CA_DIR + "/ca-" + trustListCas.size() + ".pem";
+        withCopyFileToContainer(MountableFile.forHostPath(pemFile, READABLE_FILE_MODE), target);
+        trustListCas.add(target);
+        return this;
+    }
+
+    /**
+     * Puts an external list of trusted entities (ETSI TS 119 602) on the
+     * wallet's list of trusted lists ({@code --trusted-list}, since eudi-dev
+     * v3.0.0). Call it once per list. Its signer has to chain to a CA from
+     * {@link #withTrustListCa(Path)}.
+     */
+    public EudiWalletContainer withTrustedList(String url) {
+        trustedLists.add(url);
         return this;
     }
 
@@ -348,6 +375,14 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         for (String ca : relyingPartyCas) {
             flags.add("--relying-party-ca");
             flags.add(ca);
+        }
+        for (String ca : trustListCas) {
+            flags.add("--trust-list-ca");
+            flags.add(ca);
+        }
+        for (String list : trustedLists) {
+            flags.add("--trusted-list");
+            flags.add(list);
         }
         if (startupCredentials != null) {
             flags.add("--credentials");

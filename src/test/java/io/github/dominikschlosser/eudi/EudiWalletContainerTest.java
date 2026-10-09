@@ -103,12 +103,12 @@ class EudiWalletContainerTest {
     void trustListIndexExposesOneListPerCategory() {
         WalletClient client = wallet.client();
         String vct = "urn:test:trust-list-index:1";
-        client.issueCredential(IssueRequest.sdJwt(vct).claim("name", "Trust List Index").trustProfile("eaa"));
+        client.issueCredential(IssueRequest.sdJwt(vct).claim("name", "Trust List Index").category("eaa"));
         try {
             List<TrustListIndexEntry> trustLists = client.getTrustLists();
 
             assertThat(trustLists).extracting(TrustListIndexEntry::id)
-                    .containsExactly("pid", "qeaa", "pub-eaa", "eaa", "wallet-provider");
+                    .containsExactly("pid", "qeaa", "pub-eaa", "eaa", "wallet-provider", "access-ca", "registrar");
             assertThat(trustLists).filteredOn(TrustListIndexEntry::defaultProfile).singleElement()
                     .extracting(TrustListIndexEntry::id)
                     .isEqualTo("pid");
@@ -131,7 +131,7 @@ class EudiWalletContainerTest {
     void trustListSelectorsReturnExpectedProfiles() throws Exception {
         WalletClient client = wallet.client();
         String eaaVct = "urn:test:trust-list-selector:1";
-        client.issueCredential(IssueRequest.sdJwt(eaaVct).claim("name", "Trust List Selector").trustProfile("eaa"));
+        client.issueCredential(IssueRequest.sdJwt(eaaVct).claim("name", "Trust List Selector").category("eaa"));
         try {
             String defaultTrustList = client.getTrustList();
             String eaaTrustList = client.getTrustListById("eaa");
@@ -147,9 +147,9 @@ class EudiWalletContainerTest {
             assertThat(trustListLoteType(defaultTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
             assertThat(trustListLoteType(eaaTrustList))
-                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
+                    .isEqualTo("https://eudi-test.dev/LoTEType/EAAProvidersList");
             assertThat(trustListLoteType(eaaByVctTrustList))
-                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
+                    .isEqualTo("https://eudi-test.dev/LoTEType/EAAProvidersList");
             assertThat(trustListLoteType(pidByDocTypeTrustList))
                     .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
         } finally {
@@ -812,11 +812,26 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void debugArfReportsFindingsAndPresents() throws Exception {
+        try (EudiWalletContainer arfWallet = new EudiWalletContainer().withArf()) {
+            arfWallet.start();
+            Map<String, Object> request = createVerifierRequest(arfWallet,
+                    "{\"type\": \"pid\", \"format\": \"sd-jwt\", \"identity\": \"unregistered\"}");
+
+            // debug mode presents and lists what the checks found
+            PresentationResponse response = arfWallet.acceptPresentationRequest((String) request.get("scheme_uri"));
+            assertThat(response.status()).isEqualTo("submitted");
+            assertThat(response.findings()).anyMatch(finding -> finding.contains("RPRC_19"));
+        }
+    }
+
+    @Test
     void strictArfRefusesVerifierWithoutRegistrationCertificate() throws Exception {
         try (EudiWalletContainer arfWallet = new EudiWalletContainer()
                 .withArf()
                 .withStrictValidation()
-                .withRelyingPartyCa(Path.of("src/test/resources/override-issuer-cert.pem"))) {
+                .withRelyingPartyCa(Path.of("src/test/resources/override-issuer-cert.pem"))
+                .withTrustListCa(Path.of("src/test/resources/override-issuer-cert.pem"))) {
             arfWallet.start();
             assertThat(arfWallet.client().getConfig().requireArf()).isTrue();
 
@@ -832,6 +847,24 @@ class EudiWalletContainerTest {
             assertThat(refusal.error()).isEqualTo("access_denied");
             assertThat(refusal.errorDescription()).contains("RPRC_19");
         }
+    }
+
+    @Test
+    void providersAndListsCanBePutOnTheTrustedLists() throws Exception {
+        WalletClient client = wallet.client();
+        String ca = Files.readString(Path.of("src/test/resources/override-issuer-cert.pem"));
+
+        TrustedEntity entity = client.addTrustedEntity("pid", "Example PID Provider", ca);
+        TrustedList added = client.addTrustedList("https://lists.example/pid");
+        assertThat(added.error()).isNotBlank();
+        TrustState state = client.getTrustState();
+        assertThat(state.entities()).contains(entity);
+        assertThat(state.lists()).extracting(TrustedList::url).contains("https://lists.example/pid");
+        assertThat(state.listsUrl()).endsWith("/api/trustlists/lists");
+
+        client.removeTrustedEntity(entity.id());
+        client.removeTrustedList("https://lists.example/pid");
+        assertThat(client.getTrustState().entities()).doesNotContain(entity);
     }
 
     @Test

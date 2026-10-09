@@ -40,6 +40,8 @@ import java.util.List;
  * @param credentialOptions  every credential the wallet could present
  *                           instead, {@code null} for an issuance request or
  *                           when there is nothing to choose
+ * @param findings           the checks that failed in debug mode for the
+ *                           verifier or the issuer, if any
  */
 public record ConsentRequest(
         String id,
@@ -50,14 +52,15 @@ public record ConsentRequest(
         List<CredentialMatch> matchedCredentials,
         List<String> purposes,
         List<String> privacyPolicies,
-        ConsentCredentialOptions credentialOptions) {
+        ConsentCredentialOptions credentialOptions,
+        List<String> findings) {
 
     /**
      * Creates a consent request without the selection details. Matched
-     * credentials, purposes and privacy policies are empty and credential
-     * options are absent.
+     * credentials, purposes, privacy policies and findings are empty and
+     * credential options are absent.
      */
     public ConsentRequest(String id, String type, String status, String clientId, String createdAt) {
-        this(id, type, status, clientId, createdAt, List.of(), List.of(), List.of(), null);
+        this(id, type, status, clientId, createdAt, List.of(), List.of(), List.of(), null, List.of());
     }
 }

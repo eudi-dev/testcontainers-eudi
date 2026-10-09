@@ -155,7 +155,7 @@ class EudiWalletRegistrarTest {
         RelyingParty shop = registerShop(client);
 
         assertThat(client.getRelyingParty(shop.identifier())).isEqualTo(shop);
-        // the wallet's own issuer is registered too and comes first
+        // the demo issuer is registered too and comes first
         List<RelyingParty> parties = client.getRelyingParties();
         assertThat(parties.getFirst().services())
                 .anyMatch(service -> !service.providedAttestations().isEmpty());

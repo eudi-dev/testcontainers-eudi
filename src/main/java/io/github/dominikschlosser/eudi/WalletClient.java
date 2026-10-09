@@ -230,6 +230,58 @@ public class WalletClient {
     }
 
     /**
+     * Returns the providers and external lists that were put on the wallet's
+     * trusted lists (since eudi-dev v3.0.0).
+     */
+    public TrustState getTrustState() {
+        Map<String, Object> raw = parseObject(get(baseUrl + "/api/trust"), "trust");
+        return new TrustState(
+                mapList(raw.get("entities"), e -> new TrustedEntity((String) e.get("id"), (String) e.get("list"), (String) e.get("name"))),
+                mapList(raw.get("lists"), WalletClient::trustedList),
+                (String) raw.get("lists_url"));
+    }
+
+    /**
+     * Puts the CA certificates in PEM on one of the wallet's lists, for
+     * example the CA of your issuer on the {@code pid} list. With
+     * {@link EudiWalletContainer#withArf()} the CA then anchors the checks of
+     * that list (since eudi-dev v3.0.0).
+     */
+    public TrustedEntity addTrustedEntity(String list, String name, String certificatesPem) {
+        Map<String, Object> raw = parseObject(postJson(baseUrl + "/api/trust/entities",
+                toJson(Map.of("list", list, "name", name == null ? "" : name, "certificates", certificatesPem))), "trusted entity");
+        return new TrustedEntity((String) raw.get("id"), (String) raw.get("list"), (String) raw.get("name"));
+    }
+
+    /** Takes a provider off its list. */
+    public void removeTrustedEntity(String id) {
+        delete(baseUrl + "/api/trust/entities/" + urlEncode(id));
+    }
+
+    /**
+     * Puts an external list of trusted entities (ETSI TS 119 602) on the
+     * wallet's list of trusted lists. Its signer has to chain to the wallet
+     * CA or to a CA from
+     * {@link EudiWalletContainer#withTrustListCa(java.nio.file.Path)}. The
+     * wallet follows the pointers of a list of trusted lists. In debug mode
+     * the result says why the wallet can't use the list. Strict mode refuses
+     * such a list.
+     */
+    public TrustedList addTrustedList(String url) {
+        return trustedList(parseObject(postJson(baseUrl + "/api/trust/lists", toJson(Map.of("url", url))), "trusted list"));
+    }
+
+    private static TrustedList trustedList(Map<String, Object> raw) {
+        return new TrustedList((String) raw.get("url"), Boolean.TRUE.equals(raw.get("configured")),
+                (String) raw.get("via"), (String) raw.get("error"));
+    }
+
+    /** Takes an external list off the list of trusted lists. */
+    public void removeTrustedList(String url) {
+        delete(baseUrl + "/api/trust/lists?url=" + urlEncode(url));
+    }
+
+    /**
      * Returns the shared wallet CA certificate as PEM.
      */
     public String getCaCertificatePem() {
@@ -286,7 +338,7 @@ public class WalletClient {
     }
 
     /**
-     * Returns every registration. The wallet's own issuer comes first.
+     * Returns every registration in registration order. The demo issuer and the demo verifier come first.
      */
     public List<RelyingParty> getRelyingParties() {
         List<RelyingParty> parties = new ArrayList<>();
@@ -1005,7 +1057,8 @@ public class WalletClient {
                 matched,
                 purposes,
                 privacyPolicies,
-                options
+                options,
+                stringList(raw.get("findings"))
         );
     }
 
@@ -1182,9 +1235,10 @@ public class WalletClient {
                 }
             }
             return new PresentationResponse((String) parsed.get("status"), redirectUri, idToken,
-                    (String) parsed.get("error"), (String) parsed.get("error_description"), body);
+                    (String) parsed.get("error"), (String) parsed.get("error_description"),
+                    stringList(parsed.get("findings")), body);
         } catch (IOException e) {
-            return new PresentationResponse(null, null, null, null, null, body);
+            return new PresentationResponse(null, null, null, null, null, List.of(), body);
         }
     }
 
