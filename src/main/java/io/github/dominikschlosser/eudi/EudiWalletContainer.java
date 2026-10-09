@@ -43,6 +43,10 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
+    private static final String CONTAINER_RELYING_PARTY_CA_DIR = "/relying-party-ca";
+    // The wallet runs as a non-root user. It can't read a copied host file
+    // with owner-only permissions, such as a temp file.
+    private static final int READABLE_FILE_MODE = 0644;
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
@@ -50,6 +54,7 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private boolean requireEncryptedRequest = false;
     private boolean haip = false;
     private boolean strictValidation = false;
+    private boolean arf = false;
     private String baseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
@@ -57,6 +62,7 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private String vciClientId;
     private String vciRedirectUri;
     private boolean templatesDirectoryMounted = false;
+    private final List<String> relyingPartyCas = new ArrayList<>();
     private PidClaims customPidClaims;
     private String customPidJson;
     private String pidType;
@@ -156,6 +162,32 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
      */
     public EudiWalletContainer withHaip() {
         this.haip = true;
+        return this;
+    }
+
+    /**
+     * Checks the access and registration certificates of verifiers and
+     * issuers against the ARF ({@code --arf}, since eudi-dev v3.0.0). The
+     * certificates from the wallet's own registrar pass. Add the CAs of other
+     * registrars with {@link #withRelyingPartyCa(Path)}. Combine with
+     * {@link #withStrictValidation()} to refuse a request or an offer on any
+     * finding.
+     */
+    public EudiWalletContainer withArf() {
+        this.arf = true;
+        return this;
+    }
+
+    /**
+     * Copies a PEM file with CA certificates into the container and trusts
+     * them for relying party access and registration certificates
+     * ({@code --relying-party-ca}, since eudi-dev v3.0.0). Call it once per
+     * file. Only {@link #withArf()} checks these certificates.
+     */
+    public EudiWalletContainer withRelyingPartyCa(Path pemFile) {
+        String target = CONTAINER_RELYING_PARTY_CA_DIR + "/ca-" + relyingPartyCas.size() + ".pem";
+        withCopyFileToContainer(MountableFile.forHostPath(pemFile, READABLE_FILE_MODE), target);
+        relyingPartyCas.add(target);
         return this;
     }
 
@@ -289,6 +321,13 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         if (strictValidation) {
             flags.add("--mode");
             flags.add("strict");
+        }
+        if (arf) {
+            flags.add("--arf");
+        }
+        for (String ca : relyingPartyCas) {
+            flags.add("--relying-party-ca");
+            flags.add(ca);
         }
         if (vciVersion != null) {
             flags.add("--vci-version");

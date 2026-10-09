@@ -355,10 +355,12 @@ public class WalletClient {
                 (String) raw.get("preferred_format"),
                 (String) raw.get("validation_mode"),
                 (String) raw.get("vci_version"),
+                (String) raw.get("key_attestation_level"),
                 Boolean.TRUE.equals(raw.get("auto_accept")),
                 (String) raw.get("session_transcript"),
                 Boolean.TRUE.equals(raw.get("require_haip")),
                 Boolean.TRUE.equals(raw.get("require_haip_issuance")),
+                Boolean.TRUE.equals(raw.get("require_arf")),
                 Boolean.TRUE.equals(raw.get("require_encrypted_request")),
                 Boolean.TRUE.equals(raw.get("force_client_attestation")),
                 asInt(raw.get("credential_count")),
@@ -448,6 +450,26 @@ public class WalletClient {
     }
 
     /**
+     * Toggles the ARF checks of access and registration certificates at
+     * runtime, part of the conformance settings
+     * ({@code PUT /api/config/conformance}, since eudi-dev v3.0.0). Holds
+     * until the process restarts or {@link #resetConformance()}.
+     */
+    public void setRequireArf(boolean required) {
+        putConformance("arf", required);
+    }
+
+    /**
+     * Changes the key storage and user authentication claims of the wallet's
+     * key attestations at runtime, part of the conformance settings
+     * ({@code PUT /api/config/conformance}). Holds until the process restarts
+     * or {@link #resetConformance()}.
+     */
+    public void setKeyAttestationLevel(KeyAttestationLevel level) {
+        putConformance("key_attestation_level", level.getWireValue());
+    }
+
+    /**
      * Toggles the encrypted-request-object requirement at runtime, part of
      * the conformance settings ({@code PUT /api/config/conformance}). Holds
      * until the process restarts or {@link #resetConformance()}.
@@ -457,8 +479,9 @@ public class WalletClient {
     }
 
     /**
-     * Restores the conformance settings (validation mode, HAIP, encrypted
-     * requests, OpenID4VCI feature level) the wallet was started with
+     * Restores the startup values of the conformance settings (validation
+     * mode, HAIP, ARF, encrypted requests, OpenID4VCI feature level, key
+     * attestation level)
      * ({@code DELETE /api/config/conformance}).
      */
     public void resetConformance() {

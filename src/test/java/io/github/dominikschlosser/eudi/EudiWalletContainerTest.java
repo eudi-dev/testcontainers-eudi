@@ -640,8 +640,10 @@ class EudiWalletContainerTest {
         assertThat(config.autoAccept()).isTrue();
         assertThat(config.validationMode()).isEqualTo("debug");
         assertThat(config.vciVersion()).isEqualTo("1.0");
+        assertThat(config.keyAttestationLevel()).isEmpty();
         assertThat(config.requireHaip()).isFalse();
         assertThat(config.requireHaipIssuance()).isFalse();
+        assertThat(config.requireArf()).isFalse();
         assertThat(config.requireEncryptedRequest()).isFalse();
         assertThat(config.forceClientAttestation()).isFalse();
         assertThat(config.credentialCount()).isGreaterThan(0);
@@ -660,13 +662,17 @@ class EudiWalletContainerTest {
             client.setVciVersion(VciVersion.V1_1);
             client.setValidationMode(ValidationMode.STRICT);
             client.setRequireHaip(true);
+            client.setRequireArf(true);
             client.setRequireEncryptedRequest(true);
+            client.setKeyAttestationLevel(KeyAttestationLevel.ISO_18045_HIGH);
 
             WalletConfig changed = client.getConfig();
             assertThat(changed.vciVersion()).isEqualTo("1.1");
             assertThat(changed.validationMode()).isEqualTo("strict");
             assertThat(changed.requireHaip()).isTrue();
+            assertThat(changed.requireArf()).isTrue();
             assertThat(changed.requireEncryptedRequest()).isTrue();
+            assertThat(changed.keyAttestationLevel()).isEqualTo("iso_18045_high");
         } finally {
             client.resetConformance();
         }
@@ -675,7 +681,29 @@ class EudiWalletContainerTest {
         assertThat(restored.vciVersion()).isEqualTo("1.0");
         assertThat(restored.validationMode()).isEqualTo("debug");
         assertThat(restored.requireHaip()).isFalse();
+        assertThat(restored.requireArf()).isFalse();
         assertThat(restored.requireEncryptedRequest()).isFalse();
+        assertThat(restored.keyAttestationLevel()).isEmpty();
+    }
+
+    @Test
+    void strictArfRefusesVerifierWithoutRegistrationCertificate() throws Exception {
+        try (EudiWalletContainer arfWallet = new EudiWalletContainer()
+                .withArf()
+                .withStrictValidation()
+                .withRelyingPartyCa(Path.of("src/test/resources/override-issuer-cert.pem"))) {
+            arfWallet.start();
+            assertThat(arfWallet.client().getConfig().requireArf()).isTrue();
+
+            // the unregistered demo verifier signs with its access certificate
+            // and sends no registration certificate in verifier_info
+            Map<String, Object> request = createVerifierRequest(arfWallet,
+                    "{\"type\": \"pid\", \"format\": \"sd-jwt\", \"identity\": \"unregistered\"}");
+
+            assertThatThrownBy(() -> arfWallet.acceptPresentationRequest((String) request.get("scheme_uri")))
+                    .isInstanceOf(WalletClientException.class)
+                    .hasMessageContaining("RPRC_19");
+        }
     }
 
     @Test
