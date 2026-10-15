@@ -5,27 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0-beta.1] - Unreleased
+## [3.0.0] - 2026-10-15
+
+The module moved to the [eudi-dev](https://github.com/eudi-dev) organization. Its major version now follows eudi-dev's, so 3.x runs the eudi-dev 3 wallet. The Maven coordinates stay `io.github.dominikschlosser:testcontainers-eudi`.
 
 ### Breaking changes
 
-- The default wallet image is `ghcr.io/dominikschlosser/eudi-dev:v3.0.0-beta.1`.
-- The container waits for `GET /readyz`. Wallet images before eudi-dev 2.6.0 lack it. For those, call `waitingFor(Wait.forHttp("/api/version").forPort(8085))`.
-- Some records have more components: `WalletConfig` (`keyAttestationLevel`, `requireArf`), `CredentialTemplate` (`uniqueClaims`), `ConsentRequest` (`privacyPolicies`, `findings`), `CredentialMatch` (`mismatches`, `claimSets`), `ConsentQueryOptions` (`multiple`, `nonMatching`), `ConsentSetOptions` (`unmatched`) and `PresentationResponse` (`status`, `error`, `errorDescription`, `findings`). Code that calls their canonical constructors has to pass the added values.
-- eudi-dev 3.0.0 changes some wallet behavior. In strict mode an unbound credential only matches a query that sets `require_cryptographic_holder_binding` to `false`. Debug mode offers it and marks it. The demo verifier sends its registration certificate by default. A request with `"identity": "unregistered"` leaves it out. The wallet publishes one trusted list per credential category (`pid`, `qeaa`, `pub-eaa`, `eaa`), and the `local` list is now `eaa`. The QEAA and EAA lists have the types `https://eudi-test.dev/LoTEType/QEAAProvidersList` and `EAAProvidersList`. `IssueRequest.trustProfile(...)` is now `category(...)`. A credential without a category is an EAA. See the [eudi-dev changelog](https://github.com/dominikschlosser/eudi-dev/blob/3.0.0/CHANGELOG.md).
+- The default wallet image is `ghcr.io/eudi-dev/eudi-dev:v3.1.4`. The container waits for `GET /readyz`, which wallet images before eudi-dev 2.6.0 lack. For those, call `waitingFor(Wait.forHttp("/api/version").forPort(8085))`.
+- The custom PID of `withPidClaims(...)` and `withPidType(...)` is now a startup credential. It works with every storage. `withPidType(...)` takes the PID types with built-in templates (`urn:eudi:pid:1`, `urn:eudi:pid:de:1`, `urn:eudi:pid:nl:1`, `urn:eudi:pid:it:1`) and refuses others.
+- `withTrustListCa(Path)` is now `withTrustedListCa(Path)`, like the eudi-dev flag.
+- Typed results. `OfferResponse` has the offer's status, credential ID, findings and deferred or sign-in details. `denyRequest(...)` returns a `DenialResult`, and `importCredential(...)` the stored `Credential`. `ApprovalResult` and `PresentationResponse` have more components.
+- Other records changed too: `WalletConfig` (`requireHaipIssuance` is gone, `tlsVerify`, `tlsVerifyOverride` and `storage` are new), `TrustListAttestation` (`category`, and `trustListType` and `entityName` are now `trustedListType` and `trustedEntityName`), `TrustListIndexEntry` (`description`, `category`), `ConsentRequest` (`offerConfigs`, `clientName`, `registeredName`), `CredentialTemplate`, `CredentialMatch`, `ConsentQueryOptions` and `ConsentSetOptions`. Code that calls their canonical constructors has to pass the added values.
+- eudi-dev 3 changes some wallet behavior. Errors use one object with `error` and `error_description`, and a consent timeout answers 504. A missing registration certificate is a finding, not a refusal. The demo verifier gives a request's result only for its `transaction_id`. In strict mode an unbound credential only matches a query that allows it. The wallet publishes one trusted list per credential category. `IssueRequest.trustProfile(...)` is now `category(...)`. See the [eudi-dev changelog](https://github.com/eudi-dev/eudi-dev/blob/main/CHANGELOG.md).
 
 ### Added
 
-- Registrar client. `registerRelyingParty(RelyingPartyRegistration)` registers a verifier or an issuer. `issueAccessCertificate` and `issueRegistrationCertificate` issue its certificates, with the `verifier_info` or `issuer_info` value. `revokeRegistrationCertificates` and `activateRegistrationCertificates` change their status. `getRelyingParties`, `getRelyingParty` and `deleteRelyingParty` manage the registrations. `getRegistrarCertificatePem()` and `getRelyingPartyAccessCaPem()` return the registrar certificate and the relying party access CA.
-- ARF checks. `withArf()` and `setRequireArf(boolean)` check the access and registration certificates of verifiers and issuers. `withRelyingPartyCa(Path)` trusts the CAs of other registrars, and `withTrustListCa(Path)` those of trusted list operators. With strict validation the wallet answers a refused verifier that signed its request with `access_denied`, and `acceptPresentationRequest` returns that response.
-- Attestation catalogue. `getCatalogAttestations()`, `addCatalogAttestation(CatalogEntry)`, `getAttestationSchema(id)` and `deleteCatalogAttestation(id)` manage it. `CatalogEntry.category(...)` sets the credential category. `saveTemplate(template, CatalogEntry)` and `IssueRequest.saveAsTemplate(name, CatalogEntry)` add a user template to it.
-- `withStartupCredentials(Path)` adds credentials from a YAML or JSON file on every start.
+- Registrar client. `registerRelyingParty`, `updateRelyingParty`, `enrol` and `updateEnrolment` register verifiers and issuers. `issueAccessCertificate` and `issueRegistrationCertificate` issue their certificates. Further methods revoke the certificates and list or delete the registrations. See [Registrar](docs/registrar.md).
+- ARF checks with `withArf()` and `setRequireArf(boolean)`. `withRelyingPartyCa(Path)` and `withTrustedListCa(Path)` trust the CAs of other registrars and trusted list operators.
+- Attestation catalogue: `getCatalogAttestations()`, `addCatalogAttestation(CatalogEntry)`, `getAttestationSchema(id)` and `deleteCatalogAttestation(id)`.
+- Startup files: `withStartupCredentials(Path)`, `withRelyingParties(Path)` and `withCatalog(Path)` add credentials, registrations and catalogue entries on every start.
+- Deferred issuance: `getDeferredIssuances()`, `collectDeferred(id)` and `abandonDeferred(id)`. `getOfferStatus(offerId)` polls an offer that waits for the user's sign-in.
+- `refreshCredential(id)` renews a credential with its refresh token.
+- Consent options: `ConsentApproval.pickCredentials(...)`, `chooseClaimSet(...)` and `credentialConfigurationId(...)`. In debug mode `pickCredential(...)` also takes a non-matching credential.
+- Trusted lists: `addTrustedEntity`, `removeTrustedEntity`, `addTrustedList`, `removeTrustedList` and `getTrustState()`. `withTrustedList(url)` adds a list on start.
+- Findings. `ConsentRequest`, `PresentationResponse` and `OfferResponse` list the checks a verifier or issuer failed. `WalletClientException.getFindings()` lists those of a refusal.
+- Settings: `withKeyAttestationLevel(...)`, `withClientAttestation()`, `setForceClientAttestation(boolean)`, `setTlsVerify(Boolean)`, `setAutoAccept(boolean)` and `withStorage(String)` for a Postgres URL.
 - `CredentialTemplate.withUniqueClaims(...)` gives a claim a fresh random value in every credential.
-- Consent options. `ConsentApproval.pickCredentials(...)` deselects credentials of a query with `multiple`. `chooseClaimSet(...)` picks a `claim_sets` option. In debug mode `pickCredential(...)` also takes a non-matching credential.
-- Trusted lists. `addTrustedEntity`, `removeTrustedEntity`, `addTrustedList`, `removeTrustedList` and `getTrustState()` put your own CAs and external lists on the wallet's trusted lists. `withTrustedList(url)` adds a list on start (see [Trust](docs/trust.md)).
-- Findings. In debug mode `ConsentRequest.findings()` and `PresentationResponse.findings()` list the checks a verifier failed, and the offer response carries the checks an issuer failed.
-- `setKeyAttestationLevel(KeyAttestationLevel)` sets the key attestation claims at runtime.
-- `WalletClientException` carries the HTTP status code and the `error` and `error_description` fields of a refusal.
+- `acceptCredentialOffer(uri, txCode, credentialConfigurationId)`, `acceptPresentationRequest(uri, sessionTranscript)` and `getVersion()`.
 
 ## [2.5.0] - 2026-10-02
 
