@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * A relying party in the wallet's registrar (TS05 v1.5 data model).
  *
  * @param identifier  the {@code organizationIdentifier}, such as
- *                    {@code NTRNL-1A2B3C4D5E6F7A8B}. Both certificates
+ *                    {@code NLTEST.1A2B3C4D5E6F7A8B}. Both certificates
  *                    contain it
  * @param tradeName   the trade name
  * @param legalName   the legal name

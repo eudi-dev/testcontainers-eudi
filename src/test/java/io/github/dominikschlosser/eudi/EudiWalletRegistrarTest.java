@@ -52,7 +52,7 @@ class EudiWalletRegistrarTest {
         WalletClient client = wallet.client();
         RelyingParty shop = registerShop(client);
 
-        assertThat(shop.identifier()).matches("NTRNL-[0-9A-F]+");
+        assertThat(shop.identifier()).matches("NLTEST\\.[0-9A-F]+");
         assertThat(shop.tradeName()).isEqualTo("Example Shop");
         assertThat(shop.intendedUses()).singleElement().satisfies(use -> {
             assertThat(use.identifier()).isNotBlank();
@@ -73,8 +73,11 @@ class EudiWalletRegistrarTest {
         assertThat(registration.issuerInfo()).isNull();
         List<Map<String, Object>> verifierInfo =
                 MAPPER.readValue(registration.verifierInfo(), new TypeReference<>() {});
+        // ETSI TS 119 472-2 RO-16 carries the certificate base64url encoded
+        String encoded = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(registration.certificate().getBytes(StandardCharsets.US_ASCII));
         assertThat(verifierInfo).singleElement()
-                .satisfies(entry -> assertThat(entry).containsEntry("data", registration.certificate()));
+                .satisfies(entry -> assertThat(entry).containsEntry("data", encoded));
     }
 
     @Test
@@ -88,7 +91,8 @@ class EudiWalletRegistrarTest {
 
         Map<String, Object> request = createVerifierRequest(signingKey, registration.verifierInfo());
         wallet.acceptPresentationRequest((String) request.get("scheme_uri"));
-        assertThat(verifierRequestStatus((String) request.get("id")).get("status")).isEqualTo("verified");
+        Map<String, Object> result = verifierRequestStatus((String) request.get("transaction_id"));
+        assertThat(result.get("status")).as("verifier result %s", result).isEqualTo("verified");
 
         assertThat(client.revokeRegistrationCertificates(shop.identifier(), intendedUse)).isEqualTo(1);
         Map<String, Object> revoked = createVerifierRequest(signingKey, registration.verifierInfo());
@@ -99,7 +103,7 @@ class EudiWalletRegistrarTest {
         assertThat(client.activateRegistrationCertificates(shop.identifier(), intendedUse)).isEqualTo(1);
         Map<String, Object> activated = createVerifierRequest(signingKey, registration.verifierInfo());
         wallet.acceptPresentationRequest((String) activated.get("scheme_uri"));
-        assertThat(verifierRequestStatus((String) activated.get("id")).get("status")).isEqualTo("verified");
+        assertThat(verifierRequestStatus((String) activated.get("transaction_id")).get("status")).isEqualTo("verified");
     }
 
     @Test
@@ -146,7 +150,7 @@ class EudiWalletRegistrarTest {
         assertThat(registration.verifierInfo()).isNull();
         List<Map<String, Object>> issuerInfo = MAPPER.readValue(registration.issuerInfo(), new TypeReference<>() {});
         assertThat(issuerInfo).extracting(entry -> entry.get("format"))
-                .containsExactly("registrar_dataset", "registration_cert");
+                .containsExactly("registration_cert");
     }
 
     @Test
@@ -215,7 +219,7 @@ class EudiWalletRegistrarTest {
     }
 
     @Test
-    void predefinedCatalogueEntriesCannotBeDeleted() {
+    void theTemplatesFillTheCatalogue() {
         WalletClient client = wallet.client();
         CatalogAttestation pid = client.getCatalogAttestations().stream()
                 .filter(entry -> "EUDI PID".equals(entry.name()))
@@ -224,9 +228,87 @@ class EudiWalletRegistrarTest {
 
         assertThat(pid.credentials()).extracting(RegisteredCredential::type)
                 .contains(PID_VCT, "eu.europa.ec.eudi.pid.1");
-        assertThatThrownBy(() -> client.deleteCatalogAttestation(pid.id()))
-                .isInstanceOf(WalletClientException.class)
-                .hasMessageContaining("403");
+    }
+
+    @Test
+    void enrolmentRegistersAndIssuesBothCertificates() throws Exception {
+        WalletClient client = wallet.client();
+        Enrolment enrolment = client.enrol(RelyingPartyRegistration.verifier("Example Kiosk")
+                .purpose("Name check")
+                .credential(CredentialFormat.SD_JWT, PID_VCT, "given_name"), csr(), "kiosk.example");
+
+        assertThat(enrolment.relyingParty().tradeName()).isEqualTo("Example Kiosk");
+        assertThat(enrolment.accessCertificate().clientIds()).contains("x509_san_dns:kiosk.example");
+        assertThat(jwtHeader(enrolment.registrationCertificate().certificate())).containsEntry("typ", "rc-wrp+jwt");
+        assertThat(enrolment.registrationCertificate().verifierInfo()).isNotBlank();
+    }
+
+    @Test
+    void anIssuerEnrolmentGetsTheProviderCertificate() throws Exception {
+        Enrolment enrolment = wallet.client().enrol(RelyingPartyRegistration.issuer("Example College")
+                .attestation(CredentialFormat.SD_JWT, "urn:example:transcript:1"), csr());
+
+        assertThat(enrolment.registrationCertificate().issuerInfo()).isNotBlank();
+        assertThat(enrolment.registrationCertificate().verifierInfo()).isNull();
+    }
+
+    @Test
+    void aRegistrationCanBeReplaced() {
+        WalletClient client = wallet.client();
+        RelyingParty cafe = client.registerRelyingParty(RelyingPartyRegistration.verifier("Example Cafe")
+                .purpose("Name check")
+                .credential(CredentialFormat.SD_JWT, PID_VCT, "given_name"));
+
+        RelyingParty updated = client.updateRelyingParty(RelyingPartyRegistration.verifier("Example Cafe")
+                .identifier(cafe.identifier())
+                .purpose("Age check")
+                .credential(CredentialFormat.SD_JWT, PID_VCT, "age_equal_or_over"));
+
+        assertThat(updated.identifier()).isEqualTo(cafe.identifier());
+        assertThat(updated.intendedUses()).singleElement()
+                .satisfies(use -> assertThat(use.purpose()).isEqualTo("Age check"));
+    }
+
+    @Test
+    void relyingPartiesAndCatalogueEntriesFromFilesAreAddedOnStart() throws Exception {
+        Path parties = Files.createTempFile("relying-parties", ".yaml");
+        Files.writeString(parties, """
+                identifier:
+                  - identifier: NLTEST.00000042
+                tradeName: Startup Shop
+                services:
+                  - serviceIdentifier: checkout
+                    intendedUses:
+                      - intendedUseIdentifier: name-check
+                        purpose:
+                          - lang: en
+                            content: Name check
+                        credentials:
+                          - format: dc+sd-jwt
+                            meta:
+                              vct_values: [urn:eudi:pid:1]
+                            claims:
+                              - path: [given_name]
+                """);
+        Path catalogue = Files.createTempFile("catalogue", ".yaml");
+        Files.writeString(catalogue, """
+                - name: Startup diploma
+                  credentials:
+                    - format: dc+sd-jwt
+                      type: urn:example:startup-diploma:1
+                """);
+
+        try (EudiWalletContainer startupWallet = new EudiWalletContainer()
+                .withRelyingParties(parties)
+                .withCatalog(catalogue)) {
+            startupWallet.start();
+            WalletClient client = startupWallet.client();
+
+            assertThat(client.getRelyingParty("NLTEST.00000042").tradeName()).isEqualTo("Startup Shop");
+            assertThat(client.getRegistrationCertificateStatuses("NLTEST.00000042")).isNotEmpty();
+            assertThat(client.getCatalogAttestations()).extracting(CatalogAttestation::name)
+                    .contains("Startup diploma");
+        }
     }
 
     private static RelyingParty registerShop(WalletClient client) {

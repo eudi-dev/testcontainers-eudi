@@ -23,8 +23,11 @@ import java.util.List;
  * {@code denied}, {@code refused} or {@code error} when the wallet sent the
  * verifier an error response with {@code error} and {@code errorDescription}
  * (OpenID4VP 1.0 §8.5). {@code findings} lists the checks that failed in
- * debug mode.
+ * debug mode. {@code vpTokenKeys} are the DCQL query IDs of the presented
+ * credentials. {@code verifierStatusCode} and {@code verifierBody} are the
+ * verifier's answer to the submission.
  */
 public record PresentationResponse(String status, String redirectUri, String idToken,
-        String error, String errorDescription, List<String> findings, String rawBody) {
+        String error, String errorDescription, List<String> findings, List<String> vpTokenKeys,
+        int verifierStatusCode, String verifierBody, String rawBody) {
 }

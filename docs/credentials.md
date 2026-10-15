@@ -118,7 +118,7 @@ EudiWalletContainer wallet = new EudiWalletContainer()
 Credential alice = wallet.client().getCredential("employee-alice");
 ```
 
-See [startup credentials](https://github.com/dominikschlosser/eudi-dev/blob/main/docs/wallet/serve.md#startup-credentials) in the eudi-dev docs for every field.
+See [startup credentials](https://github.com/eudi-dev/eudi-dev/blob/main/docs/wallet/serve.md#startup-credentials) in the eudi-dev docs for every field.
 
 ## SD-JWT credential builder
 
@@ -138,13 +138,23 @@ String sdJwt = builder
     .build();
 
 // Import into the wallet
-client.importCredential(sdJwt);
+Credential imported = client.importCredential(sdJwt);
 
 // Access the signing key (e.g. for verifier trust configuration)
 ECKey issuerKey = builder.getSigningKey();
 ```
 
 The builder signs on the host with a key it generates, and nothing reaches the wallet until you import the finished credential. `signedBy(...)` under [Issuing](#issuing) does the same through the wallet's issue API and also covers mdoc credentials.
+
+## Renewal
+
+A credential issued with a refresh token can be renewed. `refreshCredential(id)` asks the issuer for a new one, and the renewed credential keeps its ID:
+
+```java
+Credential renewed = client.refreshCredential(credential.id());
+```
+
+The wallet also renews such credentials on its own shortly before they expire. A failed renewal shows in the activity log.
 
 ## Deleting
 

@@ -21,6 +21,8 @@ import java.util.List;
 public record TrustListIndexEntry(
         String id,
         boolean defaultProfile,
+        String description,
+        String category,
         String path,
         String loteType,
         String entityName,

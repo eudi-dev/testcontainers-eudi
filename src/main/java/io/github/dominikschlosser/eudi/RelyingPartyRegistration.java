@@ -144,6 +144,11 @@ public class RelyingPartyRegistration {
         return this;
     }
 
+    // An issuer lists the attestation types it provides.
+    boolean isProvider() {
+        return !attestations.isEmpty();
+    }
+
     Map<String, Object> toBody() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("tradeName", name);

@@ -52,7 +52,7 @@ client.removeTrustedEntity(entity.id());
 client.removeTrustedList(list.url());
 ```
 
-`withTrustedList(url)` adds a list when the container starts. A list's signer has to chain to the wallet CA or to a CA from `withTrustListCa(Path)`. A list that a list of trusted lists points to is checked against the pointer's certificate instead.
+`withTrustedList(url)` adds a list when the container starts. A list's signer has to chain to the wallet CA or to a CA from `withTrustedListCa(Path)`. A list that a list of trusted lists points to is checked against the pointer's certificate instead.
 
 In debug mode the wallet reports the checks an issuer failed in the `findings` member of the offer response (`OfferResponse.rawBody()`), and the checks a verifier failed in `PresentationResponse.findings()`.
 

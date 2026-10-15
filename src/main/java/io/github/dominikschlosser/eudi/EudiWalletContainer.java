@@ -19,6 +19,9 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
@@ -28,29 +31,41 @@ import java.nio.file.Path;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Testcontainers wrapper for the <a href="https://github.com/dominikschlosser/eudi-dev">eudi-dev</a>
+ * Testcontainers wrapper for the <a href="https://github.com/eudi-dev/eudi-dev">eudi-dev</a>
  * wallet (formerly oid4vc-dev), providing a containerized EUDI test wallet for
  * OID4VCI and OID4VP integration tests.
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v3.0.0-beta.1";
+    private static final String DEFAULT_IMAGE = "ghcr.io/eudi-dev/eudi-dev:v3.1.4";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
     private static final String CONTAINER_RELYING_PARTY_CA_DIR = "/relying-party-ca";
-    private static final String CONTAINER_TRUST_LIST_CA_DIR = "/trust-list-ca";
+    private static final String CONTAINER_TRUSTED_LIST_CA_DIR = "/trusted-list-ca";
+    private static final String CONTAINER_RELYING_PARTIES_DIR = "/relying-parties";
+    private static final String CONTAINER_CATALOG_DIR = "/catalog";
     // The wallet runs as a non-root user. It can't read a copied host file
     // with owner-only permissions, such as a temp file.
     private static final int READABLE_FILE_MODE = 0644;
     private static final int READABLE_DIRECTORY_MODE = 0755;
-    private static final String CONTAINER_STARTUP_CREDENTIALS_FILE = "/startup-credentials.yaml";
+    // The startup credentials of the caller and the custom PID share one
+    // directory, because the wallet takes one --credentials value.
     private static final String CONTAINER_STARTUP_CREDENTIALS_DIR = "/startup-credentials";
+    // The built-in PID templates of each PID type: <prefix>pid-sdjwt and
+    // <prefix>pid-mdoc.
+    private static final Map<String, String> PID_TEMPLATE_PREFIXES = Map.of(
+            "urn:eudi:pid:1", "",
+            "urn:eudi:pid:de:1", "german-",
+            "urn:eudi:pid:nl:1", "dutch-",
+            "urn:eudi:pid:it:1", "italian-");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
@@ -67,9 +82,13 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private String vciRedirectUri;
     private boolean templatesDirectoryMounted = false;
     private final List<String> relyingPartyCas = new ArrayList<>();
-    private final List<String> trustListCas = new ArrayList<>();
+    private final List<String> trustedListCas = new ArrayList<>();
     private final List<String> trustedLists = new ArrayList<>();
-    private String startupCredentials;
+    private boolean startupCredentials = false;
+    private boolean relyingParties = false;
+    private boolean catalog = false;
+    private KeyAttestationLevel keyAttestationLevel;
+    private boolean clientAttestation = false;
     private PidClaims customPidClaims;
     private String customPidJson;
     private String pidType;
@@ -96,6 +115,16 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         return withEnv("EUDI_DEV_STORAGE", storage.getWireValue());
     }
 
+    /**
+     * Stores the wallet in Postgres, for example
+     * {@code postgres://user@db:5432/eudi?sslmode=disable}. Pass the password
+     * with {@code withEnv("PGPASSWORD", ...)}. The container has to reach the
+     * database, for example on a shared {@link org.testcontainers.containers.Network}.
+     */
+    public EudiWalletContainer withStorage(String url) {
+        return withEnv("EUDI_DEV_STORAGE", url);
+    }
+
     public EudiWalletContainer withoutDefaultPid() {
         this.includeDefaultPid = false;
         return this;
@@ -112,14 +141,21 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     }
 
     /**
-     * Selects the PID type (SD-JWT {@code vct}) the wallet's default PID
-     * credentials are generated as, and with it the claim set:
+     * Selects the PID type (SD-JWT {@code vct}) of the wallet's PID
+     * credentials, and with it the built-in templates and their claim set:
      * {@code urn:eudi:pid:1} is the country-independent EUDI PID (the
-     * default), {@code urn:eudi:pid:de:1} the German PID with its national
-     * additions. Any other type is generated with the country-independent
-     * claim set. Since eudi-dev v1.22.0.
+     * default). {@code urn:eudi:pid:de:1}, {@code urn:eudi:pid:nl:1} and
+     * {@code urn:eudi:pid:it:1} add national claims. For another type, save a
+     * template and add the credential with {@link #withStartupCredentials(Path)}.
+     * The PID credentials get the IDs {@code pid-sdjwt} and {@code pid-mdoc}.
+     *
+     * @throws IllegalArgumentException for a type without built-in templates
      */
     public EudiWalletContainer withPidType(String vct) {
+        if (!PID_TEMPLATE_PREFIXES.containsKey(vct)) {
+            throw new IllegalArgumentException("eudi-dev has no PID templates for " + vct
+                    + ". Built-in types: " + String.join(", ", PID_TEMPLATE_PREFIXES.keySet()));
+        }
         this.pidType = vct;
         return this;
     }
@@ -200,14 +236,14 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
     /**
      * Copies a PEM file with CA certificates into the container and trusts
-     * them for the signatures of trusted lists ({@code --trust-list-ca}, since
-     * eudi-dev v3.0.0). The wallet trusts the lists it signs itself. Call it
-     * once per file. Only {@link #withArf()} checks these signatures.
+     * them for the signatures of trusted lists ({@code --trusted-list-ca},
+     * since eudi-dev v3.0.0). The wallet trusts the lists it signs itself.
+     * Call it once per file. Only {@link #withArf()} checks these signatures.
      */
-    public EudiWalletContainer withTrustListCa(Path pemFile) {
-        String target = CONTAINER_TRUST_LIST_CA_DIR + "/ca-" + trustListCas.size() + ".pem";
+    public EudiWalletContainer withTrustedListCa(Path pemFile) {
+        String target = CONTAINER_TRUSTED_LIST_CA_DIR + "/ca-" + trustedListCas.size() + ".pem";
         withCopyFileToContainer(MountableFile.forHostPath(pemFile, READABLE_FILE_MODE), target);
-        trustListCas.add(target);
+        trustedListCas.add(target);
         return this;
     }
 
@@ -215,7 +251,7 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
      * Puts an external list of trusted entities (ETSI TS 119 602) on the
      * wallet's list of trusted lists ({@code --trusted-list}, since eudi-dev
      * v3.0.0). Call it once per list. Its signer has to chain to a CA from
-     * {@link #withTrustListCa(Path)}.
+     * {@link #withTrustedListCa(Path)}.
      */
     public EudiWalletContainer withTrustedList(String url) {
         trustedLists.add(url);
@@ -230,11 +266,52 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
      * becomes the credential ID.
      */
     public EudiWalletContainer withStartupCredentials(Path hostPath) {
-        boolean directory = Files.isDirectory(hostPath);
-        String target = directory ? CONTAINER_STARTUP_CREDENTIALS_DIR : CONTAINER_STARTUP_CREDENTIALS_FILE;
-        int mode = directory ? READABLE_DIRECTORY_MODE : READABLE_FILE_MODE;
-        withCopyFileToContainer(MountableFile.forHostPath(hostPath, mode), target);
-        this.startupCredentials = target;
+        copyFileOrDirectory(hostPath, CONTAINER_STARTUP_CREDENTIALS_DIR);
+        this.startupCredentials = true;
+        return this;
+    }
+
+    /**
+     * Copies a YAML or JSON file of relying parties, or a directory of such
+     * files, into the container and registers them on start
+     * ({@code --relying-parties}, since eudi-dev v3.0.2). An entry is a TS05
+     * registration. The wallet's registrar issues its access and registration
+     * certificates.
+     */
+    public EudiWalletContainer withRelyingParties(Path hostPath) {
+        copyFileOrDirectory(hostPath, CONTAINER_RELYING_PARTIES_DIR);
+        this.relyingParties = true;
+        return this;
+    }
+
+    /**
+     * Copies a YAML or JSON file of attestation catalogue entries, or a
+     * directory of such files, into the container and adds them on start
+     * ({@code --catalog}, since eudi-dev v3.0.0).
+     */
+    public EudiWalletContainer withCatalog(Path hostPath) {
+        copyFileOrDirectory(hostPath, CONTAINER_CATALOG_DIR);
+        this.catalog = true;
+        return this;
+    }
+
+    /**
+     * Sets the key attestation claims of the wallet's key attestations
+     * ({@code --key-attestation-level}). Change it at runtime with
+     * {@link WalletClient#setKeyAttestationLevel(KeyAttestationLevel)}.
+     */
+    public EudiWalletContainer withKeyAttestationLevel(KeyAttestationLevel level) {
+        this.keyAttestationLevel = level;
+        return this;
+    }
+
+    /**
+     * Sends the wallet attestation on OID4VCI token requests even when the
+     * issuer doesn't advertise {@code attest_jwt_client_auth}
+     * ({@code --client-attestation}).
+     */
+    public EudiWalletContainer withClientAttestation() {
+        this.clientAttestation = true;
         return this;
     }
 
@@ -328,22 +405,25 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
     @Override
     protected void configure() {
-        String claimsJson = resolveCustomPidJson();
-
-        if (claimsJson != null || pidType != null) {
-            configureWithGeneratedPid(claimsJson);
-        } else {
-            configureStandard();
+        String claimsJson = customPidClaims != null ? customPidClaims.toJson() : customPidJson;
+        boolean customPid = claimsJson != null || pidType != null;
+        if (customPid) {
+            withCopyToContainer(Transferable.of(customPidFile(claimsJson), READABLE_FILE_MODE),
+                    CONTAINER_STARTUP_CREDENTIALS_DIR + "/custom-pid.json");
         }
+        List<String> cmd = new ArrayList<>(List.of("wallet", "serve"));
+        cmd.addAll(buildServeFlags(customPid));
+        setCommand(cmd.toArray(new String[0]));
     }
 
-    private List<String> buildServeFlags() {
+    // The image turns auto-accept and the default PID on through environment
+    // variables, so both flags are always set explicitly.
+    private List<String> buildServeFlags(boolean customPid) {
         List<String> flags = new ArrayList<>();
         flags.add("--port");
         flags.add(String.valueOf(WALLET_PORT));
-        if (autoAccept) {
-            flags.add("--auto-accept");
-        }
+        flags.add("--auto-accept=" + autoAccept);
+        flags.add("--pid=" + (includeDefaultPid && !customPid));
         if (statusList) {
             flags.add("--status-list");
         }
@@ -376,17 +456,31 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
             flags.add("--relying-party-ca");
             flags.add(ca);
         }
-        for (String ca : trustListCas) {
-            flags.add("--trust-list-ca");
+        for (String ca : trustedListCas) {
+            flags.add("--trusted-list-ca");
             flags.add(ca);
         }
         for (String list : trustedLists) {
             flags.add("--trusted-list");
             flags.add(list);
         }
-        if (startupCredentials != null) {
+        if (startupCredentials || customPid) {
             flags.add("--credentials");
-            flags.add(startupCredentials);
+            flags.add(CONTAINER_STARTUP_CREDENTIALS_DIR);
+        }
+        if (relyingParties) {
+            flags.add("--relying-parties");
+            flags.add(CONTAINER_RELYING_PARTIES_DIR);
+        }
+        if (catalog) {
+            flags.add("--catalog");
+            flags.add(CONTAINER_CATALOG_DIR);
+        }
+        if (keyAttestationLevel != null) {
+            flags.add("--key-attestation-level=" + keyAttestationLevel.getWireValue());
+        }
+        if (clientAttestation) {
+            flags.add("--client-attestation");
         }
         if (vciVersion != null) {
             flags.add("--vci-version");
@@ -407,38 +501,34 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         return flags;
     }
 
-    private void configureStandard() {
-        List<String> cmd = new ArrayList<>();
-        cmd.add("wallet");
-        cmd.add("serve");
-        cmd.addAll(buildServeFlags());
-        if (includeDefaultPid) {
-            cmd.add("--pid");
+    // The custom PID is a startup credentials file with one entry per format.
+    // Both entries get the same claim overrides.
+    private String customPidFile(String claimsJson) {
+        String prefix = PID_TEMPLATE_PREFIXES.get(pidType != null ? pidType : "urn:eudi:pid:1");
+        try {
+            Object claims = claimsJson != null ? MAPPER.readValue(claimsJson, Map.class) : null;
+            List<Map<String, Object>> entries = new ArrayList<>();
+            for (String format : List.of("sdjwt", "mdoc")) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", "pid-" + format);
+                entry.put("template", prefix + "pid-" + format);
+                if (claims != null) {
+                    entry.put("claims", claims);
+                }
+                entries.add(entry);
+            }
+            return MAPPER.writeValueAsString(Map.of("credentials", entries));
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("PID claims are not a JSON object: " + claimsJson, e);
         }
-        setCommand(cmd.toArray(new String[0]));
     }
 
-    private void configureWithGeneratedPid(String claimsJson) {
-        // generate-pid replaces any existing PID credentials, so --pid on serve
-        // is unnecessary — the generated PID fully defines the PID content.
-        List<String> parts = new ArrayList<>();
-        StringBuilder generateCmd = new StringBuilder("eudi wallet generate-pid");
-        if (pidType != null) {
-            generateCmd.append(" --vct '").append(shellEscape(pidType)).append("'");
-        }
-        if (claimsJson != null) {
-            generateCmd.append(" --claims '").append(shellEscape(claimsJson)).append("'");
-        }
-        parts.add(generateCmd.toString());
-
-        StringBuilder serveCmd = new StringBuilder("eudi wallet serve");
-        for (String flag : buildServeFlags()) {
-            serveCmd.append(" ").append(flag);
-        }
-        parts.add(serveCmd.toString());
-
-        withCreateContainerCmdModifier(cmd -> cmd.withEntrypoint("sh", "-c"));
-        setCommand(new String[]{String.join(" && ", parts)});
+    // A file keeps its name, so the wallet still reads it by its extension.
+    private void copyFileOrDirectory(Path hostPath, String containerDirectory) {
+        boolean directory = Files.isDirectory(hostPath);
+        String target = directory ? containerDirectory : containerDirectory + "/" + hostPath.getFileName();
+        int mode = directory ? READABLE_DIRECTORY_MODE : READABLE_FILE_MODE;
+        withCopyFileToContainer(MountableFile.forHostPath(hostPath, mode), target);
     }
 
     public String getBaseUrl() {
@@ -642,17 +732,6 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
      */
     public Path exportWalletTlsCaCertificate(Path outputPath) {
         return writePem(outputPath, getWalletTlsCaCertificatePem(), "wallet TLS CA certificate");
-    }
-
-    private String resolveCustomPidJson() {
-        if (customPidClaims != null) {
-            return customPidClaims.toJson();
-        }
-        return customPidJson;
-    }
-
-    private static String shellEscape(String value) {
-        return value.replace("'", "'\\''");
     }
 
     private static String urlEncode(String value) {

@@ -18,7 +18,7 @@ RelyingParty shop = client.registerRelyingParty(RelyingPartyRegistration.verifie
     .purpose("Age check")
     .credential(CredentialFormat.SD_JWT, "urn:eudi:pid:1", "age_equal_or_over.18"));
 
-String identifier = shop.identifier();                       // such as NTRNL-1A2B3C4D5E6F7A8B
+String identifier = shop.identifier();                       // such as NLTEST.1A2B3C4D5E6F7A8B
 String intendedUse = shop.intendedUses().getFirst().identifier();
 ```
 
@@ -58,6 +58,29 @@ String issuerInfo = registration.issuerInfo();
 ```
 
 Put the `issuerInfo` array at the top level of the Credential Issuer Metadata. Sign the metadata with the access certificate key (OpenID4VCI 1.0 §12.2.3) and serve it when a wallet asks for `application/jwt`.
+
+## Registering in one step
+
+`enrol` registers a verifier or an issuer and issues both certificates in one request. If a certificate fails, nothing is stored:
+
+```java
+Enrolment enrolment = client.enrol(RelyingPartyRegistration.verifier("Example Shop")
+    .purpose("Age check")
+    .credential(CredentialFormat.SD_JWT, "urn:eudi:pid:1", "age_equal_or_over.18"), csrPem, "shop.example");
+
+String chainPem = enrolment.accessCertificate().chain();
+String verifierInfo = enrolment.registrationCertificate().verifierInfo();
+```
+
+For an issuer the registration certificate covers its service and carries `issuerInfo()`. `updateEnrolment(...)` changes an existing registration the same way. Set the registration's `identifier(...)` for that.
+
+`updateRelyingParty(registration)` replaces a registration without new certificates. If an intended use or a service changes or is missing, its certificates are revoked.
+
+## Registrations from files
+
+`withRelyingParties(Path)` registers verifiers and issuers on every start, from a YAML or JSON file or a directory of such files. An entry has the shape of a TS05 registration. It sets the `identifier` of the party and the `intendedUseIdentifier` of each intended use, so the certificates stay the same on every start. The registrar issues a registration certificate for every intended use and issuer service. See [pre-registered relying parties](https://github.com/eudi-dev/eudi-dev/blob/main/docs/wallet/serve.md#pre-registered-relying-parties) for the format.
+
+`withCatalog(Path)` adds attestation types to the catalogue the same way, see [pre-registered catalogue entries](https://github.com/eudi-dev/eudi-dev/blob/main/docs/wallet/serve.md#pre-registered-catalogue-entries).
 
 ## Revoking registration certificates
 
@@ -101,12 +124,14 @@ static EudiWalletContainer wallet = new EudiWalletContainer()
 PresentationResponse refusal = wallet.acceptPresentationRequest(requestUri);
 refusal.status();           // refused
 refusal.error();            // access_denied
-refusal.errorDescription(); // The request does not meet the ARF registration rules: ARF RPRC_19: ...
+refusal.errorDescription(); // The request does not meet the ARF registration rules: ARF RPRC_21: ...
 ```
+
+A missing registration certificate is a finding in every mode. CIR (EU) 2026/1731 defers that check to 11 August 2028. A registration certificate that is present is checked, and strict mode refuses it when it fails.
 
 The wallet sends no response to a verifier it can't authenticate. Then the call throws a `WalletClientException` with status 400, as described in [Flows](flows.md).
 
-The wallet trusts the certificates of its own registrar. To trust another registrar, pass its CA certificates with `withRelyingPartyCa(Path)`. A received credential must chain to a trusted list signed by the wallet or by a CA from `withTrustListCa(Path)`. Call each once per PEM file. `setRequireArf(boolean)` switches the checks at runtime, see [Conformance settings](configuration.md#conformance-settings).
+The wallet trusts the certificates of its own registrar. To trust another registrar, pass its CA certificates with `withRelyingPartyCa(Path)`. A received credential must chain to a trusted list signed by the wallet or by a CA from `withTrustedListCa(Path)`. Call each once per PEM file. `setRequireArf(boolean)` switches the checks at runtime, see [Conformance settings](configuration.md#conformance-settings).
 
 ## Attestation catalogue
 
@@ -126,6 +151,6 @@ AttestationSchema schema = client.getAttestationSchema(diploma.id()); // TS11 Sc
 client.deleteCatalogAttestation(diploma.id());
 ```
 
-The trusted list is an ETSI TS 119 602 list of trusted entities. The category is `pid`, `qeaa`, `pub-eaa` or `eaa` (the default). The wallet signs credentials of the type for the trusted list of that category, and an entry without `trustedList` links that list. The entries of predefined templates can't be deleted.
+The trusted list is an ETSI TS 119 602 list of trusted entities. The category is `pid`, `qeaa`, `pub-eaa` or `eaa` (the default). The wallet signs credentials of the type for the trusted list of that category, and an entry without `trustedList` links that list. The next start restores a deleted entry of a predefined template.
 
 To add a user template to the catalogue, save it with a catalogue entry (see [Templates](credentials.md#templates)).

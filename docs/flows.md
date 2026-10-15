@@ -3,23 +3,25 @@
 ## Accepting offers and presentation requests
 
 ```java
-// Accept a credential offer (returns OfferResponse)
 OfferResponse offer = wallet.acceptCredentialOffer(credentialOfferUri);
+String credentialId = offer.credentialId();
 
-// Accept a presentation request (returns PresentationResponse with redirect URI)
 PresentationResponse presentation = wallet.acceptPresentationRequest(presentationRequestUri);
 String redirectUri = presentation.redirectUri();
 String idToken = presentation.idToken(); // set when response_type includes id_token
+int verifierStatus = presentation.verifierStatusCode();
 ```
 
-When the wallet refuses a request, the call throws a `WalletClientException`. It carries the HTTP status and the error fields of the response. A presentation request that fails validation in strict mode gives an OpenID4VP 1.0 §8.5 error code:
+`OfferResponse.status()` is `completed`, `deferred`, `failed` or `authorization_required`. In debug mode `findings()` lists the checks the issuer failed. `PresentationResponse` has the same `findings()`, the DCQL query IDs of the presented credentials in `vpTokenKeys()`, and the verifier's answer in `verifierStatusCode()` and `verifierBody()`. `acceptPresentationRequest(uri, "iso")` uses the ISO session transcript for one mdoc request.
+
+When the wallet refuses a request, the call throws a `WalletClientException`. It carries the HTTP status and the error object of the response. A presentation request that fails validation in strict mode gives an OpenID4VP 1.0 §8.5 error code and lists the failed checks:
 
 ```java
 WalletClientException refusal = assertThrows(WalletClientException.class,
     () -> wallet.acceptPresentationRequest(requestUri));
 assertThat(refusal.getStatusCode()).isEqualTo(400);
 assertThat(refusal.getError()).isEqualTo("invalid_request");
-assertThat(refusal.getErrorDescription()).contains("HAIP");
+assertThat(refusal.getFindings()).anyMatch(finding -> finding.startsWith("HAIP 1.0"));
 ```
 
 An offer can require a transaction code that the issuer delivers separately (OpenID4VCI §4.1.1). The wallet refuses such an offer without the code, so pass it along:
@@ -29,6 +31,31 @@ OfferResponse response = wallet.acceptCredentialOffer(offerUri, "1234");
 ```
 
 On a wallet without auto-accept, the code travels with the approval instead: `ConsentApproval.approval().txCode("1234")`, see [Approving with a specific selection](#approving-with-a-specific-selection).
+
+For an offer with several credential configurations, the wallet requests the first one. `acceptCredentialOffer(offerUri, txCode, "diploma")` requests another one. `txCode` may be `null`. In the consent dialog, `ConsentRequest.offerConfigs()` lists them and `ConsentApproval.approval().credentialConfigurationId("diploma")` picks one.
+
+### Sign-in at the issuer
+
+An authorization-code offer needs the user's sign-in at the issuer. The offer then answers with `authorization_required`, the issuer's `authorizationUrl()` and an `offerId()`. Drive the sign-in in a browser and poll the offer:
+
+```java
+OfferResponse offer = wallet.acceptCredentialOffer(offerUri);
+browser.navigate(offer.authorizationUrl()); // sign in as the user
+OfferResponse done = wallet.client().getOfferStatus(offer.offerId()); // completed once the wallet has the credential
+```
+
+### Deferred issuance
+
+An issuer can defer a credential (OpenID4VCI 1.0 §9). The offer then answers with status `deferred` and a `transactionId()`. The wallet asks the issuer again at the issuer's interval:
+
+```java
+WalletClient client = wallet.client();
+List<DeferredIssuance> deferred = client.getDeferredIssuances();
+DeferredAttempt attempt = client.collectDeferred(deferred.getFirst().id()); // ask now
+client.abandonDeferred(deferred.getFirst().id());                          // stop asking
+```
+
+When the credential arrives, the wallet stores it and removes the record from the list.
 
 Offers can also be delivered to the wallet's own URL instead of the `openid-credential-offer://` custom scheme, for issuers that only speak plain web URLs:
 
@@ -56,11 +83,13 @@ String redirectUri = result.redirectUri();
 OfferResponse response = submitted.get();
 ```
 
-`submitPresentationRequestForConsent(...)` does the same for OID4VP requests. Denying resolves the submission with a `denied` status instead:
+`submitPresentationRequestForConsent(...)` does the same for OID4VP requests. Denying resolves the submission with a `denied` status instead. The wallet sends the verifier an error response, and the `DenialResult` carries the verifier's redirect:
 
 ```java
-client.denyRequest(request.id());
+DenialResult denial = client.denyRequest(request.id());
 ```
+
+`setAutoAccept(false)` turns auto-accept off at runtime, `setAutoAccept(true)` back on.
 
 `getPendingRequests()` lists everything currently awaiting a decision.
 

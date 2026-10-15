@@ -15,5 +15,18 @@
  */
 package io.github.dominikschlosser.eudi;
 
-public record OfferResponse(String rawBody) {
+import java.util.List;
+
+/**
+ * The wallet's answer to a credential offer ({@code POST /api/offers}) or to
+ * {@link WalletClient#getOfferStatus(String)}. {@code status} is
+ * {@code completed}, {@code deferred} (the issuer will deliver the credential
+ * later, see {@link WalletClient#getDeferredIssuances()}), {@code failed} or
+ * {@code authorization_required}. The last one means the user has to sign in
+ * at {@code authorizationUrl}. Poll the offer with its {@code offerId} then.
+ * {@code findings} lists the checks the issuer failed in debug mode.
+ */
+public record OfferResponse(String status, String credentialId, String format, String issuer,
+        String verificationStatus, String error, String transactionId, String retryInterval,
+        String authorizationUrl, String offerId, List<String> findings, String rawBody) {
 }

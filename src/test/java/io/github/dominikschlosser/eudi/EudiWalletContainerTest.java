@@ -767,10 +767,11 @@ class EudiWalletContainerTest {
         assertThat(config.vciVersion()).isEqualTo("1.0");
         assertThat(config.keyAttestationLevel()).isEmpty();
         assertThat(config.requireHaip()).isFalse();
-        assertThat(config.requireHaipIssuance()).isFalse();
         assertThat(config.requireArf()).isFalse();
         assertThat(config.requireEncryptedRequest()).isFalse();
         assertThat(config.forceClientAttestation()).isFalse();
+        assertThat(config.tlsVerifyOverride()).isNull();
+        assertThat(config.storage()).isEqualTo("file");
         assertThat(config.credentialCount()).isGreaterThan(0);
         assertThat(config.buildId()).isNotBlank();
         assertThat(config.version()).isNotBlank();
@@ -790,6 +791,8 @@ class EudiWalletContainerTest {
             client.setRequireArf(true);
             client.setRequireEncryptedRequest(true);
             client.setKeyAttestationLevel(KeyAttestationLevel.ISO_18045_HIGH);
+            client.setForceClientAttestation(true);
+            client.setTlsVerify(false);
 
             WalletConfig changed = client.getConfig();
             assertThat(changed.vciVersion()).isEqualTo("1.1");
@@ -798,6 +801,9 @@ class EudiWalletContainerTest {
             assertThat(changed.requireArf()).isTrue();
             assertThat(changed.requireEncryptedRequest()).isTrue();
             assertThat(changed.keyAttestationLevel()).isEqualTo("iso_18045_high");
+            assertThat(changed.forceClientAttestation()).isTrue();
+            assertThat(changed.tlsVerifyOverride()).isFalse();
+            assertThat(changed.tlsVerify()).isFalse();
         } finally {
             client.resetConformance();
         }
@@ -809,6 +815,8 @@ class EudiWalletContainerTest {
         assertThat(restored.requireArf()).isFalse();
         assertThat(restored.requireEncryptedRequest()).isFalse();
         assertThat(restored.keyAttestationLevel()).isEmpty();
+        assertThat(restored.forceClientAttestation()).isFalse();
+        assertThat(restored.tlsVerifyOverride()).isNull();
     }
 
     @Test
@@ -826,12 +834,12 @@ class EudiWalletContainerTest {
     }
 
     @Test
-    void strictArfRefusesVerifierWithoutRegistrationCertificate() throws Exception {
+    void strictArfPresentsToAVerifierWithoutRegistrationCertificate() throws Exception {
         try (EudiWalletContainer arfWallet = new EudiWalletContainer()
                 .withArf()
                 .withStrictValidation()
                 .withRelyingPartyCa(Path.of("src/test/resources/override-issuer-cert.pem"))
-                .withTrustListCa(Path.of("src/test/resources/override-issuer-cert.pem"))) {
+                .withTrustedListCa(Path.of("src/test/resources/override-issuer-cert.pem"))) {
             arfWallet.start();
             assertThat(arfWallet.client().getConfig().requireArf()).isTrue();
 
@@ -840,12 +848,11 @@ class EudiWalletContainerTest {
             Map<String, Object> request = createVerifierRequest(arfWallet,
                     "{\"type\": \"pid\", \"format\": \"sd-jwt\", \"identity\": \"unregistered\"}");
 
-            // the access certificate authenticates the verifier, so the wallet
-            // answers it with access_denied (OpenID4VP 1.0 §8.5)
-            PresentationResponse refusal = arfWallet.acceptPresentationRequest((String) request.get("scheme_uri"));
-            assertThat(refusal.status()).isEqualTo("refused");
-            assertThat(refusal.error()).isEqualTo("access_denied");
-            assertThat(refusal.errorDescription()).contains("RPRC_19");
+            // CIR (EU) 2026/1731 defers the registration certificate check to
+            // 11 August 2028, so a missing certificate is a finding only
+            PresentationResponse response = arfWallet.acceptPresentationRequest((String) request.get("scheme_uri"));
+            assertThat(response.status()).isEqualTo("submitted");
+            assertThat(response.findings()).anyMatch(finding -> finding.contains("RPRC_19"));
         }
     }
 
@@ -916,7 +923,7 @@ class EudiWalletContainerTest {
 
             ApprovalResult result = client.approveRequest(request.id());
             assertThat(result.status()).isEqualTo("approved");
-            assertThat(approved.get(10, TimeUnit.SECONDS).rawBody()).contains("credential_id");
+            assertThat(approved.get(10, TimeUnit.SECONDS).credentialId()).isNotBlank();
             assertThat(client.getPendingRequests()).isEmpty();
             assertThat(client.getCredentials()).hasSize(countBefore + 1);
 
@@ -924,7 +931,7 @@ class EudiWalletContainerTest {
                     client.submitCredentialOfferForConsent(demoCredentialOffer(consentWallet));
             client.denyRequest(client.awaitPendingRequest(Duration.ofSeconds(10)).id());
 
-            assertThat(denied.get(10, TimeUnit.SECONDS).rawBody()).contains("\"status\":\"denied\"");
+            assertThat(denied.get(10, TimeUnit.SECONDS).status()).isEqualTo("denied");
             assertThat(client.getCredentials()).hasSize(countBefore + 1);
         }
     }
@@ -952,7 +959,7 @@ class EudiWalletContainerTest {
 
             OfferResponse response = client.acceptCredentialOffer(offerUri);
 
-            assertThat(response.rawBody()).contains("credential_id");
+            assertThat(response.status()).isEqualTo("completed");
             // the demo issuer only issues its ticket once the wallet's PID
             // presentation was verified, so holding it proves the interactive
             // authorization ran end to end
@@ -1019,7 +1026,7 @@ class EudiWalletContainerTest {
             assertThat(result.status()).isEqualTo("approved");
             submitted.get(10, TimeUnit.SECONDS);
 
-            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("transaction_id"));
             assertThat(status.get("status")).isEqualTo("verified");
             @SuppressWarnings("unchecked")
             Map<String, Object> claims = (Map<String, Object>) status.get("claims");
@@ -1040,7 +1047,7 @@ class EudiWalletContainerTest {
             partialSubmitted.get(10, TimeUnit.SECONDS);
 
             Map<String, Object> partialStatus =
-                    verifierRequestStatus(consentWallet, (String) partialRequest.get("id"));
+                    verifierRequestStatus(consentWallet, (String) partialRequest.get("transaction_id"));
             assertThat(partialStatus.get("status")).isEqualTo("failed");
             assertThat((String) partialStatus.get("error")).contains("family_name");
         }
@@ -1072,7 +1079,7 @@ class EudiWalletContainerTest {
             assertThat(result.status()).isEqualTo("approved");
             submitted.get(10, TimeUnit.SECONDS);
 
-            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("transaction_id"));
             assertThat(status.get("status")).isEqualTo("verified");
             // the activity log names what was sent: the mdoc PID, not the
             // SD-JWT one the wallet would have chosen on its own
@@ -1140,7 +1147,7 @@ class EudiWalletContainerTest {
             submitted.get(10, TimeUnit.SECONDS);
 
             assertThat(sentCredentials(client)).extracting(sent -> sent.get("id")).containsExactly(pid.credentialId());
-            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("transaction_id"));
             assertThat(status.get("status")).isEqualTo("failed");
         }
     }
@@ -1235,7 +1242,92 @@ class EudiWalletContainerTest {
                 .hasMessageContaining("transaction code");
 
         OfferResponse accepted = client.acceptCredentialOffer(offerUri, "1234");
-        assertThat(accepted.rawBody()).contains("credential_id");
+        assertThat(accepted.credentialId()).isNotBlank();
+    }
+
+    @Test
+    void anOfferAnswersWithTheIssuedCredential() throws Exception {
+        WalletClient client = wallet.client();
+
+        OfferResponse response = client.acceptCredentialOffer(demoCredentialOffer(wallet));
+
+        assertThat(response.status()).isEqualTo("completed");
+        assertThat(client.getCredential(response.credentialId()).type()).isEqualTo("urn:eudi-test:demo-ticket:1");
+        assertThat(response.issuer()).endsWith("/issuer");
+    }
+
+    @Test
+    void aDeferredCredentialArrivesLater() throws Exception {
+        WalletClient client = wallet.client();
+
+        OfferResponse response = client.acceptCredentialOffer(demoCredentialOffer(wallet, "?deferred=true"));
+
+        assertThat(response.status()).isEqualTo("deferred");
+        assertThat(response.transactionId()).isNotBlank();
+        assertThat(client.getDeferredIssuances())
+                .anyMatch(deferred -> response.transactionId().equals(deferred.transactionId()));
+        // the demo issuer delivers after five seconds, and the wallet asks every two
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (client.getDeferredIssuances().stream()
+                .anyMatch(deferred -> response.transactionId().equals(deferred.transactionId()))) {
+            assertThat(System.nanoTime()).isLessThan(deadline);
+            Thread.sleep(500);
+        }
+    }
+
+    @Test
+    void aDeferredCredentialCanBeAbandoned() throws Exception {
+        WalletClient client = wallet.client();
+        OfferResponse response = client.acceptCredentialOffer(demoCredentialOffer(wallet, "?deferred=true"));
+        DeferredIssuance deferred = client.getDeferredIssuances().stream()
+                .filter(candidate -> response.transactionId().equals(candidate.transactionId()))
+                .findFirst()
+                .orElseThrow();
+
+        client.abandonDeferred(deferred.id());
+
+        assertThat(client.getDeferredIssuances()).doesNotContain(deferred);
+    }
+
+    @Test
+    void autoAcceptCanBeChangedAtRuntime() {
+        WalletClient client = wallet.client();
+        try {
+            client.setAutoAccept(false);
+            assertThat(client.getConfig().autoAccept()).isFalse();
+        } finally {
+            client.setAutoAccept(true);
+        }
+        assertThat(client.getConfig().autoAccept()).isTrue();
+    }
+
+    @Test
+    void theVersionIsTheReleaseOfTheImage() {
+        assertThat(wallet.client().getVersion()).matches("v3\\.[0-9]+\\.[0-9]+");
+    }
+
+    @Test
+    void aPidTypeWithoutBuiltInTemplatesIsRefused() {
+        assertThatThrownBy(() -> new EudiWalletContainer().withPidType("urn:example:pid:1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("urn:eudi:pid:de:1");
+    }
+
+    @Test
+    void aStrictRefusalListsItsFindings() throws Exception {
+        try (EudiWalletContainer strictWallet = new EudiWalletContainer().withHaip().withStrictValidation()) {
+            strictWallet.start();
+            Map<String, Object> request = createVerifierRequest(strictWallet, """
+                    {"type": "custom", "client_id_scheme": "redirect_uri",
+                     "credentials": [{"format": "dc+sd-jwt", "vct": "urn:eudi:pid:1", "claims": [["given_name"]]}]}
+                    """);
+
+            assertThatThrownBy(() -> strictWallet.acceptPresentationRequest((String) request.get("scheme_uri")))
+                    .isInstanceOfSatisfying(WalletClientException.class, refusal -> {
+                        assertThat(refusal.getStatusCode()).isEqualTo(400);
+                        assertThat(refusal.getFindings()).anyMatch(finding -> finding.startsWith("HAIP 1.0"));
+                    });
+        }
     }
 
     /**

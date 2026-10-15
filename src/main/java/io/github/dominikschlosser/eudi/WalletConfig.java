@@ -28,9 +28,15 @@ package io.github.dominikschlosser.eudi;
  * {@code "1.1"}, see {@link VciVersion}). {@code keyAttestationLevel} is the
  * wire value of a {@link KeyAttestationLevel}, empty for the issuer's
  * requirements. {@code validationMode}, {@code vciVersion},
- * {@code keyAttestationLevel}, {@code requireHaip}, {@code requireArf} and
- * {@code requireEncryptedRequest} are changeable at runtime through the
+ * {@code keyAttestationLevel}, {@code requireHaip}, {@code requireArf},
+ * {@code requireEncryptedRequest}, {@code forceClientAttestation} and
+ * {@code tlsVerifyOverride} are changeable at runtime through the
  * {@link WalletClient} conformance setters.
+ *
+ * <p>{@code tlsVerify} is the TLS verification in effect. Without an override
+ * ({@code tlsVerifyOverride} is null) it follows the validation mode.
+ * {@code storage} is the storage backend: {@code file}, {@code memory} or
+ * {@code postgres}.
  */
 public record WalletConfig(
         int pid,
@@ -49,10 +55,12 @@ public record WalletConfig(
         boolean autoAccept,
         String sessionTranscript,
         boolean requireHaip,
-        boolean requireHaipIssuance,
         boolean requireArf,
         boolean requireEncryptedRequest,
         boolean forceClientAttestation,
+        boolean tlsVerify,
+        Boolean tlsVerifyOverride,
+        String storage,
         int credentialCount,
         boolean tlsListener
 ) {

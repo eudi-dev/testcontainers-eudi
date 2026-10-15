@@ -27,6 +27,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -262,7 +263,7 @@ public class WalletClient {
      * Puts an external list of trusted entities (ETSI TS 119 602) on the
      * wallet's list of trusted lists. Its signer has to chain to the wallet
      * CA or to a CA from
-     * {@link EudiWalletContainer#withTrustListCa(java.nio.file.Path)}. The
+     * {@link EudiWalletContainer#withTrustedListCa(java.nio.file.Path)}. The
      * wallet follows the pointers of a list of trusted lists. In debug mode
      * the result says why the wallet can't use the list. Strict mode refuses
      * such a list.
@@ -355,6 +356,69 @@ public class WalletClient {
         return parties;
     }
 
+    /**
+     * Replaces a registration ({@code PUT /api/registrar/wrp}). The
+     * registration needs its {@code identifier}. If an intended use or a
+     * service changes or is missing, its certificates are revoked.
+     */
+    public RelyingParty updateRelyingParty(RelyingPartyRegistration registration) {
+        Map<String, Object> response = parseObject(
+                putJson(baseUrl + "/api/registrar/wrp", toJson(registration.toBody()), "application/json"),
+                "relying party response");
+        return toRelyingParty(asMap(response.get("data")));
+    }
+
+    /**
+     * Registers a verifier or an issuer and issues its certificates in one
+     * request ({@code POST /api/registrar/enrolments}). The access certificate
+     * certifies the public key of the PEM certificate signing request. Each
+     * DNS name adds an {@code x509_san_dns} client identifier. The
+     * registration certificate covers the issuer service or the verifier's
+     * intended use. If a certificate fails, nothing is stored.
+     */
+    public Enrolment enrol(RelyingPartyRegistration registration, String csrPem, String... dnsNames) {
+        return enrolment(postJson(baseUrl + "/api/registrar/enrolments",
+                toJson(enrolmentBody(registration, csrPem, dnsNames))));
+    }
+
+    /**
+     * Changes a registration and issues certificates for it, like
+     * {@link #enrol(RelyingPartyRegistration, String, String...)}
+     * ({@code PUT /api/registrar/enrolments}). The registration needs its
+     * {@code identifier}. If a certificate fails, the registration stays as
+     * it was.
+     */
+    public Enrolment updateEnrolment(RelyingPartyRegistration registration, String csrPem, String... dnsNames) {
+        return enrolment(putJson(baseUrl + "/api/registrar/enrolments",
+                toJson(enrolmentBody(registration, csrPem, dnsNames))));
+    }
+
+    private static Map<String, Object> enrolmentBody(RelyingPartyRegistration registration, String csrPem,
+            String... dnsNames) {
+        Map<String, Object> access = new LinkedHashMap<>();
+        access.put("csr", csrPem);
+        if (dnsNames.length > 0) {
+            access.put("dnsNames", List.of(dnsNames));
+        }
+        Map<String, Object> certificate = new LinkedHashMap<>();
+        if (registration.isProvider()) {
+            certificate.put("provider", true);
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("relyingParty", registration.toBody());
+        body.put("access", access);
+        body.put("registration", certificate);
+        return body;
+    }
+
+    private static Enrolment enrolment(String body) {
+        Map<String, Object> response = parseObject(body, "enrolment response");
+        return new Enrolment(
+                toRelyingParty(asMap(response.get("relyingParty"))),
+                toAccessCertificate(asMap(response.get("access"))),
+                toRegistrationCertificate(asMap(response.get("registration"))));
+    }
+
     public RelyingParty getRelyingParty(String identifier) {
         Map<String, Object> response = parseObject(
                 getJson(baseUrl + "/api/registrar/wrp/" + urlEncode(identifier)), "relying party response");
@@ -380,13 +444,16 @@ public class WalletClient {
         if (dnsNames.length > 0) {
             body.put("dnsNames", List.of(dnsNames));
         }
-        Map<String, Object> response = parseObject(
+        return toAccessCertificate(parseObject(
                 postJson(baseUrl + "/api/registrar/access-certificates", toJson(body)),
-                "access certificate response");
+                "access certificate response"));
+    }
+
+    private static AccessCertificate toAccessCertificate(Map<String, Object> raw) {
         return new AccessCertificate(
-                (String) response.get("certificate"),
-                (String) response.get("chain"),
-                stringList(response.get("clientIds")));
+                (String) raw.get("certificate"),
+                (String) raw.get("chain"),
+                stringList(raw.get("clientIds")));
     }
 
     /**
@@ -410,13 +477,16 @@ public class WalletClient {
     }
 
     private RegistrationCertificate issueRegistrationCertificate(Map<String, Object> body) {
-        Map<String, Object> response = parseObject(
+        return toRegistrationCertificate(parseObject(
                 postJson(baseUrl + "/api/registrar/registration-certificates", toJson(body)),
-                "registration certificate response");
+                "registration certificate response"));
+    }
+
+    private static RegistrationCertificate toRegistrationCertificate(Map<String, Object> raw) {
         return new RegistrationCertificate(
-                (String) response.get("registrationCertificate"),
-                (String) response.get("verifierInfo"),
-                (String) response.get("issuerInfo"));
+                (String) raw.get("registrationCertificate"),
+                (String) raw.get("verifierInfo"),
+                (String) raw.get("issuerInfo"));
     }
 
     /**
@@ -590,16 +660,25 @@ public class WalletClient {
         Map<String, Object> parsed = parseObject(response, "approval response");
         return new ApprovalResult(
                 (String) parsed.get("status"),
+                asInt(parsed.get("status_code")),
                 (String) parsed.get("redirect_uri"),
-                (String) parsed.get("error")
+                (String) parsed.get("error"),
+                stringList(parsed.get("findings")),
+                (String) parsed.get("transaction_id"),
+                (String) parsed.get("retry_interval")
         );
     }
 
     /**
-     * Denies a pending consent request.
+     * Denies a pending consent request. The wallet sends the verifier an
+     * error response.
      */
-    public void denyRequest(String id) {
-        postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/deny", toJson(Map.of()));
+    public DenialResult denyRequest(String id) {
+        Map<String, Object> parsed = parseObject(
+                postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/deny", toJson(Map.of())),
+                "deny response");
+        return new DenialResult((String) parsed.get("status"), (String) parsed.get("redirect_uri"),
+                (String) parsed.get("error"));
     }
 
     /**
@@ -630,6 +709,11 @@ public class WalletClient {
         }
     }
 
+    /** Returns the wallet's release, such as {@code v3.1.4} ({@code GET /api/version}). */
+    public String getVersion() {
+        return (String) parseObject(get(baseUrl + "/api/version"), "version response").get("version");
+    }
+
     /**
      * Returns the wallet instance's introspection document.
      */
@@ -652,10 +736,12 @@ public class WalletClient {
                 Boolean.TRUE.equals(raw.get("auto_accept")),
                 (String) raw.get("session_transcript"),
                 Boolean.TRUE.equals(raw.get("require_haip")),
-                Boolean.TRUE.equals(raw.get("require_haip_issuance")),
                 Boolean.TRUE.equals(raw.get("require_arf")),
                 Boolean.TRUE.equals(raw.get("require_encrypted_request")),
                 Boolean.TRUE.equals(raw.get("force_client_attestation")),
+                Boolean.TRUE.equals(raw.get("tls_verify")),
+                raw.get("tls_verify_override") instanceof Boolean override ? override : null,
+                (String) raw.get("storage"),
                 asInt(raw.get("credential_count")),
                 Boolean.TRUE.equals(raw.get("tls_listener"))
         );
@@ -719,7 +805,7 @@ public class WalletClient {
      * the process restarts or {@link #resetConformance()}.
      */
     public void setValidationMode(ValidationMode mode) {
-        putConformance("mode", mode.getWireValue());
+        putConformance("validation_mode", mode.getWireValue());
     }
 
     /**
@@ -739,7 +825,7 @@ public class WalletClient {
      * restarts or {@link #resetConformance()}.
      */
     public void setRequireHaip(boolean required) {
-        putConformance("haip", required);
+        putConformance("require_haip", required);
     }
 
     /**
@@ -749,7 +835,7 @@ public class WalletClient {
      * until the process restarts or {@link #resetConformance()}.
      */
     public void setRequireArf(boolean required) {
-        putConformance("arf", required);
+        putConformance("require_arf", required);
     }
 
     /**
@@ -768,25 +854,104 @@ public class WalletClient {
      * until the process restarts or {@link #resetConformance()}.
      */
     public void setRequireEncryptedRequest(boolean required) {
-        putConformance("encrypted", required);
+        putConformance("require_encrypted_request", required);
     }
 
     /**
-     * Restores the startup values of the conformance settings (validation
-     * mode, HAIP, ARF, encrypted requests, OpenID4VCI feature level, key
-     * attestation level)
+     * Sends the wallet attestation on OID4VCI token requests even when the
+     * issuer doesn't advertise {@code attest_jwt_client_auth}, part of the
+     * conformance settings ({@code PUT /api/config/conformance}). Holds until
+     * the process restarts or {@link #resetConformance()}.
+     */
+    public void setForceClientAttestation(boolean force) {
+        putConformance("force_client_attestation", force);
+    }
+
+    /**
+     * Turns TLS verification of outgoing requests on or off, part of the
+     * conformance settings ({@code PUT /api/config/conformance}). {@code null}
+     * makes it follow the validation mode again. Holds until the process
+     * restarts or {@link #resetConformance()}.
+     */
+    public void setTlsVerify(Boolean verify) {
+        putConformance("tls_verify_override", verify);
+    }
+
+    /**
+     * Restores the startup values of the conformance settings
      * ({@code DELETE /api/config/conformance}).
      */
     public void resetConformance() {
         delete(baseUrl + "/api/config/conformance");
     }
 
+    // A null value is sent as JSON null, which tls_verify_override needs.
     private void putConformance(String key, Object value) {
-        putJson(baseUrl + "/api/config/conformance", toJson(Map.of(key, value)));
+        Map<String, Object> body = new HashMap<>();
+        body.put(key, value);
+        putJson(baseUrl + "/api/config/conformance", toJson(body));
     }
 
-    public void importCredential(String rawCredential) {
-        postRaw(baseUrl + "/api/credentials", rawCredential);
+    /**
+     * Turns auto-accept on or off at runtime ({@code PUT /api/config/auto-accept}).
+     * Without it, interactive flows wait for {@link #approveRequest(String)}
+     * or {@link #denyRequest(String)}.
+     */
+    public void setAutoAccept(boolean enabled) {
+        putJson(baseUrl + "/api/config/auto-accept", toJson(Map.of("enabled", enabled)));
+    }
+
+    /**
+     * Imports a finished SD-JWT VC, JWT VC or mdoc and returns the stored
+     * credential.
+     */
+    public Credential importCredential(String rawCredential) {
+        return withDetailWhenSummaryOnly(toCredential(
+                parseObject(postRaw(baseUrl + "/api/credentials", rawCredential), "import response")));
+    }
+
+    /**
+     * Renews a credential with its refresh token
+     * ({@code POST /api/credentials/{id}/refresh}). The renewed credential
+     * keeps its ID.
+     */
+    public Credential refreshCredential(String id) {
+        return withDetailWhenSummaryOnly(toCredential(parseObject(
+                postJson(baseUrl + "/api/credentials/" + urlEncode(id) + "/refresh", toJson(Map.of())),
+                "refresh response")));
+    }
+
+    /** Returns the credentials the issuers deferred ({@code GET /api/deferred}). */
+    public List<DeferredIssuance> getDeferredIssuances() {
+        return mapList(parseValue(get(baseUrl + "/api/deferred"), "deferred response"), raw -> new DeferredIssuance(
+                (String) raw.get("id"),
+                (String) raw.get("transaction_id"),
+                (String) raw.get("issuer"),
+                (String) raw.get("credential_configuration_id"),
+                (String) raw.get("format"),
+                raw.get("vct") instanceof String vct && !vct.isEmpty() ? vct : (String) raw.get("doctype"),
+                (String) raw.get("interval"),
+                asInt(raw.get("attempts")),
+                (String) raw.get("last_error")));
+    }
+
+    /** Asks the issuer for a deferred credential now ({@code POST /api/deferred/{id}/collect}). */
+    public DeferredAttempt collectDeferred(String id) {
+        Map<String, Object> raw = parseObject(
+                postJson(baseUrl + "/api/deferred/" + urlEncode(id) + "/collect", toJson(Map.of())),
+                "collect response");
+        return new DeferredAttempt(
+                Boolean.TRUE.equals(raw.get("collected")),
+                Boolean.TRUE.equals(raw.get("pending")),
+                Boolean.TRUE.equals(raw.get("abandoned")),
+                (String) raw.get("credential_id"),
+                (String) raw.get("format"),
+                (String) raw.get("reason"));
+    }
+
+    /** Stops asking the issuer for a deferred credential ({@code DELETE /api/deferred/{id}}). */
+    public void abandonDeferred(String id) {
+        delete(baseUrl + "/api/deferred/" + urlEncode(id));
     }
 
     public void setCredentialStatus(String credentialId, int status) {
@@ -814,6 +979,16 @@ public class WalletClient {
     }
 
     /**
+     * Submits an OID4VP request with the mdoc session transcript for this
+     * request only: {@code oid4vp} or {@code iso}.
+     */
+    public PresentationResponse acceptPresentationRequest(String uri, String sessionTranscript) {
+        String body = postJson(baseUrl + "/api/presentations",
+                toJson(Map.of("uri", uri, "session_transcript", sessionTranscript)));
+        return toPresentationResponse(body);
+    }
+
+    /**
      * Submits an OID4VP request as an interactive one, so a wallet running
      * without auto-accept raises a consent request instead of accepting
      * outright.
@@ -837,8 +1012,7 @@ public class WalletClient {
      * dialog instead.
      */
     public OfferResponse acceptCredentialOffer(String uri) {
-        String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri)));
-        return new OfferResponse(body);
+        return toOfferResponse(postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri))));
     }
 
     /**
@@ -847,8 +1021,30 @@ public class WalletClient {
      * the code the wallet refuses such an offer.
      */
     public OfferResponse acceptCredentialOffer(String uri, String txCode) {
-        String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri, "tx_code", txCode)));
-        return new OfferResponse(body);
+        return toOfferResponse(postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri, "tx_code", txCode))));
+    }
+
+    /**
+     * Accepts an offer that lists several credential configurations and
+     * requests the given one. {@code txCode} may be null.
+     */
+    public OfferResponse acceptCredentialOffer(String uri, String txCode, String credentialConfigurationId) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("uri", uri);
+        if (txCode != null) {
+            body.put("tx_code", txCode);
+        }
+        body.put("credential_configuration_id", credentialConfigurationId);
+        return toOfferResponse(postJson(baseUrl + "/api/offers", toJson(body)));
+    }
+
+    /**
+     * Returns the state of an offer that waits for the user's sign-in at the
+     * issuer ({@code GET /api/offers/{id}}). Pass the {@code offerId} of the
+     * {@code authorization_required} answer.
+     */
+    public OfferResponse getOfferStatus(String offerId) {
+        return toOfferResponse(get(baseUrl + "/api/offers/" + urlEncode(offerId)));
     }
 
     /**
@@ -864,7 +1060,7 @@ public class WalletClient {
      */
     public CompletableFuture<OfferResponse> submitCredentialOfferForConsent(String uri) {
         return postJsonAsync(baseUrl + "/api/offers", toJson(Map.of("uri", uri, "interactive", true)))
-                .thenApply(OfferResponse::new);
+                .thenApply(WalletClient::toOfferResponse);
     }
 
     public void deleteCredential(String id) {
@@ -928,9 +1124,14 @@ public class WalletClient {
     }
 
     private String putJson(String url, String body) {
+        return putJson(url, body, "*/*");
+    }
+
+    private String putJson(String url, String body, String accept) {
         return sendRequest(HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .header("Accept", accept)
                 .PUT(HttpRequest.BodyPublishers.ofString(body))
                 .build());
     }
@@ -971,7 +1172,8 @@ public class WalletClient {
                             + " " + request.uri() + ": " + response.body(),
                     response.statusCode(),
                     body.get("error") instanceof String error ? error : null,
-                    body.get("error_description") instanceof String description ? description : null);
+                    body.get("error_description") instanceof String description ? description : null,
+                    stringList(body.get("findings")));
         }
         return response.body();
     }
@@ -1058,7 +1260,10 @@ public class WalletClient {
                 purposes,
                 privacyPolicies,
                 options,
-                stringList(raw.get("findings"))
+                stringList(raw.get("findings")),
+                stringList(raw.get("offer_configs")),
+                (String) raw.get("client_name"),
+                (String) raw.get("registered_name")
         );
     }
 
@@ -1221,24 +1426,52 @@ public class WalletClient {
     }
 
     private static PresentationResponse toPresentationResponse(String body) {
+        Map<String, Object> parsed;
         try {
-            Map<String, Object> parsed = MAPPER.readValue(body, new TypeReference<>() {});
-            String redirectUri = (String) parsed.get("redirect_uri");
-            String idToken = (String) parsed.get("id_token");
-            if (redirectUri == null) {
-                Object response = parsed.get("response");
-                if (response instanceof Map<?, ?> responseMap) {
-                    redirectUri = (String) responseMap.get("redirect_uri");
-                    if (idToken == null) {
-                        idToken = (String) responseMap.get("id_token");
-                    }
-                }
-            }
-            return new PresentationResponse((String) parsed.get("status"), redirectUri, idToken,
-                    (String) parsed.get("error"), (String) parsed.get("error_description"),
-                    stringList(parsed.get("findings")), body);
+            parsed = MAPPER.readValue(body, new TypeReference<>() {});
         } catch (IOException e) {
-            return new PresentationResponse(null, null, null, null, null, List.of(), body);
+            return new PresentationResponse(null, null, null, null, null, List.of(), List.of(), 0, null, body);
+        }
+        Map<String, Object> verifier = asMap(parsed.get("response"));
+        String redirectUri = parsed.get("redirect_uri") instanceof String uri ? uri : (String) verifier.get("redirect_uri");
+        String idToken = parsed.get("id_token") instanceof String token ? token : (String) verifier.get("id_token");
+        return new PresentationResponse((String) parsed.get("status"), redirectUri, idToken,
+                (String) parsed.get("error"), (String) parsed.get("error_description"),
+                stringList(parsed.get("findings")), stringList(parsed.get("vp_token_keys")),
+                asInt(verifier.get("status_code")), (String) verifier.get("body"), body);
+    }
+
+    // An issuance result has no status field. The answers of
+    // GET /api/offers/{id} and of an offer that needs a sign-in have one. The
+    // first nests the result.
+    private static OfferResponse toOfferResponse(String body) {
+        Map<String, Object> parsed = parseObject(body, "offer response");
+        Map<String, Object> result = parsed.get("result") instanceof Map<?, ?> ? asMap(parsed.get("result")) : parsed;
+        String status = (String) parsed.get("status");
+        if (status == null) {
+            status = Boolean.TRUE.equals(result.get("pending")) ? "deferred"
+                    : result.get("error") != null ? "failed" : "completed";
+        }
+        String error = parsed.get("error") instanceof String e ? e : (String) result.get("error");
+        return new OfferResponse(status,
+                (String) result.get("credential_id"),
+                (String) result.get("format"),
+                (String) result.get("issuer"),
+                (String) result.get("verification_status"),
+                error,
+                (String) result.get("transaction_id"),
+                (String) result.get("retry_interval"),
+                (String) parsed.get("authorization_url"),
+                (String) parsed.get("offer_id"),
+                stringList(result.get("findings")),
+                body);
+    }
+
+    private static Object parseValue(String body, String description) {
+        try {
+            return MAPPER.readValue(body, Object.class);
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse " + description, e);
         }
     }
 
@@ -1270,6 +1503,8 @@ public class WalletClient {
         return new TrustListIndexEntry(
                 (String) map.get("id"),
                 Boolean.TRUE.equals(map.get("default")),
+                (String) map.get("description"),
+                (String) map.get("category"),
                 (String) map.get("path"),
                 (String) map.get("loTEType"),
                 (String) map.get("entityName"),
@@ -1292,11 +1527,12 @@ public class WalletClient {
                 (String) map.get("vct"),
                 (String) map.get("doctype"),
                 (List<String>) map.getOrDefault("entitlements", List.of()),
-                (String) map.get("trust_list_type"),
+                (String) map.get("category"),
+                (String) map.get("trusted_list_type"),
                 (String) map.get("status_determination_approach"),
                 (String) map.get("scheme_type_community_rules"),
                 (String) map.get("scheme_territory"),
-                (String) map.get("entity_name"),
+                (String) map.get("trusted_entity_name"),
                 (String) map.get("issuance_service_type"),
                 (String) map.get("revocation_service_type"),
                 (String) map.get("issuance_service_name"),

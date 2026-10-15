@@ -4,10 +4,10 @@
 
 # testcontainers-eudi
 
-[![Build](https://github.com/dominikschlosser/testcontainers-eudi/actions/workflows/build.yml/badge.svg)](https://github.com/dominikschlosser/testcontainers-eudi/actions/workflows/build.yml)
+[![Build](https://github.com/eudi-dev/testcontainers-eudi/actions/workflows/build.yml/badge.svg)](https://github.com/eudi-dev/testcontainers-eudi/actions/workflows/build.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.dominikschlosser/testcontainers-eudi)](https://central.sonatype.com/artifact/io.github.dominikschlosser/testcontainers-eudi)
 
-A [Testcontainers](https://www.testcontainers.org/) module that puts a complete EUDI test wallet into your integration tests, wrapping the [`eudi-dev`](https://github.com/dominikschlosser/eudi-dev) Docker image.
+A [Testcontainers](https://www.testcontainers.org/) module that puts a complete EUDI test wallet into your integration tests, wrapping the [`eudi-dev`](https://github.com/eudi-dev/eudi-dev) Docker image.
 
 If you build an issuer, a verifier, or an identity provider that speaks [OpenID for Verifiable Credentials](https://openid.net/sg/openid4vc/), your tests need a wallet on the other side of the protocol. This one starts in about a second, already holds a PID credential in SD-JWT and mdoc form, redeems credential offers, answers presentation requests, and exposes an HTTP API your test drives through a typed Java client: seed exactly the credentials a scenario needs, walk through consent, and assert what the wallet actually sent and received.
 
@@ -19,16 +19,14 @@ Requires Java 21 and Docker. The artifact is on [Maven Central](https://central.
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-eudi</artifactId>
-    <version>3.0.0-beta.1</version>
+    <version>3.0.0</version>
     <scope>test</scope>
 </dependency>
 ```
 
-The container runs `ghcr.io/dominikschlosser/eudi-dev:v3.0.0-beta.1` by default. Pass a different image tag to the constructor to pin another wallet version.
+The container runs `ghcr.io/eudi-dev/eudi-dev:v3.1.4` by default. Pass a different image tag to the constructor to pin another wallet version. The module's major version follows eudi-dev's, so 3.x supports the eudi-dev 3 wallet. To try the wallet in the browser, use the demo at [eudi-test.dev](https://eudi-test.dev).
 
-3.0.0 is in beta. Maven only uses a beta when you set its version, so your build stays on the stable release until you opt in. The latest stable release is [2.5.0](https://central.sonatype.com/artifact/io.github.dominikschlosser/testcontainers-eudi/2.5.0). It runs eudi-dev 2.5.0. To try the 3.0.0 wallet in the browser, use the beta demo at [preview.eudi-test.dev](https://preview.eudi-test.dev).
-
-The wrapper uses file storage so mounted wallet state and CA certificates are loaded, and custom PID credentials survive the startup commands. Use `withStorage(Storage.MEMORY)` for memory storage. See [Storage](docs/configuration.md#storage) for all options.
+The wrapper uses file storage, so mounted wallet state and CA certificates are loaded. Use `withStorage(Storage.MEMORY)` for memory storage. See [Storage](docs/configuration.md#storage) for all options.
 
 ## Test your verifier
 
@@ -127,6 +125,7 @@ The consent dialog is testable too: start the wallet with `withoutAutoAccept()` 
 - [OID4VCI and OID4VP flows](docs/flows.md): offers, presentations, consent handling
 - [Trust](docs/trust.md): trust lists, TLS certificates, issuer metadata
 - [Registrar](docs/registrar.md): register verifiers and issuers, ARF checks, attestation catalogue
+- [Errors](docs/configuration.md#errors): error codes and the findings of a refusal
 - [Networking and URLs](docs/networking.md): endpoint URLs, host access, base URL
 
 ## Notices

@@ -53,14 +53,18 @@ public record ConsentRequest(
         List<String> purposes,
         List<String> privacyPolicies,
         ConsentCredentialOptions credentialOptions,
-        List<String> findings) {
+        List<String> findings,
+        List<String> offerConfigs,
+        String clientName,
+        String registeredName) {
 
     /**
      * Creates a consent request without the selection details. Matched
-     * credentials, purposes, privacy policies and findings are empty and
-     * credential options are absent.
+     * credentials, purposes, privacy policies, findings and offer
+     * configurations are empty. Credential options and names are absent.
      */
     public ConsentRequest(String id, String type, String status, String clientId, String createdAt) {
-        this(id, type, status, clientId, createdAt, List.of(), List.of(), List.of(), null, List.of());
+        this(id, type, status, clientId, createdAt, List.of(), List.of(), List.of(), null, List.of(),
+                List.of(), null, null);
     }
 }

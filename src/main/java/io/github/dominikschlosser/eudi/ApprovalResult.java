@@ -15,12 +15,19 @@
  */
 package io.github.dominikschlosser.eudi;
 
+import java.util.List;
+
 /**
  * Result of approving a pending consent request.
  *
- * @param status      {@code approved}
- * @param redirectUri the verifier's redirect URI after a presentation submission, if any
- * @param error       submission error, if the flow failed after approval
+ * @param status        {@code approved}, or {@code pending} when the issuer deferred the credential
+ * @param statusCode    the HTTP status of the verifier's or issuer's answer, 0 if none
+ * @param redirectUri   the verifier's redirect URI after a presentation submission, if any
+ * @param error         submission error, if the flow failed after approval
+ * @param findings      the failed checks behind {@code error}, one per entry
+ * @param transactionId the transaction of a deferred credential
+ * @param retryInterval how often the wallet asks for a deferred credential
  */
-public record ApprovalResult(String status, String redirectUri, String error) {
+public record ApprovalResult(String status, int statusCode, String redirectUri, String error,
+        List<String> findings, String transactionId, String retryInterval) {
 }

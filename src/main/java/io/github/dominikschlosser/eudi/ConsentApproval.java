@@ -40,6 +40,7 @@ public final class ConsentApproval {
     private final TreeMap<Integer, Integer> setChoices = new TreeMap<>();
     private final Map<String, Integer> claimSets = new LinkedHashMap<>();
     private String txCode;
+    private String credentialConfigurationId;
 
     /**
      * Starts an approval that keeps the wallet's own selection until
@@ -124,6 +125,15 @@ public final class ConsentApproval {
         return this;
     }
 
+    /**
+     * Requests this configuration of an offer that lists several, one of
+     * {@link ConsentRequest#offerConfigs()}. The default is the first.
+     */
+    public ConsentApproval credentialConfigurationId(String id) {
+        this.credentialConfigurationId = id;
+        return this;
+    }
+
     Map<String, Object> toBody() {
         Map<String, Object> body = new LinkedHashMap<>();
         if (!selectedClaims.isEmpty()) {
@@ -146,6 +156,9 @@ public final class ConsentApproval {
         }
         if (txCode != null) {
             body.put("tx_code", txCode);
+        }
+        if (credentialConfigurationId != null) {
+            body.put("credential_configuration_id", credentialConfigurationId);
         }
         return body;
     }
