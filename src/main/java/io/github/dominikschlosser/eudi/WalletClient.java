@@ -48,6 +48,20 @@ public class WalletClient {
         this.httpClient = HttpClient.newHttpClient();
     }
 
+    /**
+     * Returns a client for an eudi-dev wallet that is not a container of the test run, for example one
+     * started by Docker Compose. A wallet container returns its client from {@link EudiWalletContainer#client()}.
+     *
+     * @param baseUrl the wallet's base URL, for example {@code http://localhost:8085}
+     */
+    public static WalletClient forBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("The wallet's base URL is required");
+        }
+        String trimmed = baseUrl.strip();
+        return new WalletClient(trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed);
+    }
+
     public List<Credential> getCredentials() {
         String body = get(baseUrl + "/api/credentials");
         try {

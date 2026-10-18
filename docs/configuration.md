@@ -63,6 +63,12 @@ client.setValidationMode(ValidationMode.STRICT);
 client.resetConformance();
 ```
 
+A wallet that is not a container of the test run, for example one started by Docker Compose, gets its client from its base URL:
+
+```java
+WalletClient client = WalletClient.forBaseUrl("http://localhost:8085");
+```
+
 The preferred credential format works the same way: `withPreferredFormat(CredentialFormat.SD_JWT)` at startup, `setPreferredFormat(format)` and `clearPreferredFormat()` at runtime. So does auto-accept: `withoutAutoAccept()` at startup, `setAutoAccept(flag)` at runtime.
 
 ## Custom PID claims
