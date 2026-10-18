@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-10-18
+
+### Added
+
+- `WalletClient.forBaseUrl(String)` returns a client for a wallet that is not a container of the test run, for example one started by Docker Compose.
+
 ## [3.0.0] - 2026-10-15
 
 The module moved to the [eudi-dev](https://github.com/eudi-dev) organization. Its major version now follows eudi-dev's, so 3.x runs the eudi-dev 3 wallet. The Maven coordinates stay `io.github.dominikschlosser:testcontainers-eudi`.
