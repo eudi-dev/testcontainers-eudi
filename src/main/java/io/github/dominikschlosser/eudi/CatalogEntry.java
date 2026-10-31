@@ -47,6 +47,7 @@ public class CatalogEntry {
     private String bindingType;
     private String trustedList;
     private String category;
+    private String credentialIssuer;
 
     private CatalogEntry(String name) {
         this.name = name;
@@ -72,6 +73,15 @@ public class CatalogEntry {
      */
     public CatalogEntry credential(CredentialFormat format, String type, String... claims) {
         credentials.add(new RegisteredCredential(format, type, List.of(claims)));
+        return this;
+    }
+
+    /**
+     * Names an issuer of this type by its Credential Issuer Identifier, so a
+     * wallet can request the type there (since eudi-dev v3.6.0).
+     */
+    public CatalogEntry credentialIssuer(String credentialIssuer) {
+        this.credentialIssuer = credentialIssuer;
         return this;
     }
 
@@ -125,6 +135,9 @@ public class CatalogEntry {
         Map<String, Object> body = new LinkedHashMap<>();
         if (name != null) {
             body.put("name", name);
+        }
+        if (credentialIssuer != null) {
+            body.put("credentialIssuer", credentialIssuer);
         }
         if (category != null) {
             body.put("category", category);

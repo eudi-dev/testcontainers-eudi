@@ -26,6 +26,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -294,6 +295,168 @@ public class WalletClient {
     /** Takes an external list off the list of trusted lists. */
     public void removeTrustedList(String url) {
         delete(baseUrl + "/api/trust/lists?url=" + urlEncode(url));
+    }
+
+    /**
+     * Returns the certificate chain of a credential, leaf first (since
+     * eudi-dev v3.6.0).
+     */
+    public List<CredentialCertificate> getCredentialCertificates(String id) {
+        return parseList(get(baseUrl + "/api/credentials/" + urlEncode(id) + "/certificates"), "certificates response")
+                .stream().map(WalletClient::toCredentialCertificate).collect(Collectors.toList());
+    }
+
+    private static CredentialCertificate toCredentialCertificate(Map<String, Object> raw) {
+        return new CredentialCertificate((String) raw.get("name"), (String) raw.get("role"), (String) raw.get("subject"),
+                (String) raw.get("serial"), (String) raw.get("certificate"), Boolean.TRUE.equals(raw.get("revocable")),
+                Boolean.TRUE.equals(raw.get("revoked")), Boolean.TRUE.equals(raw.get("withdrawable")),
+                (String) raw.get("withdrawn_id"), stringList(raw.get("credentials")));
+    }
+
+    /** Returns the certificates this wallet revoked (since eudi-dev v3.6.0). */
+    public List<RevokedCertificate> getRevokedCertificates() {
+        return parseList(get(baseUrl + "/api/certificates/revocations"), "revocations response")
+                .stream().map(WalletClient::toRevokedCertificate).collect(Collectors.toList());
+    }
+
+    /**
+     * Puts a certificate issued by this wallet on the CRL of its issuer (since
+     * eudi-dev v3.6.0).
+     *
+     * @param certificatePem the certificate as PEM
+     */
+    public RevokedCertificate revokeCertificate(String certificatePem) {
+        return revokeCertificate(certificatePem, 0);
+    }
+
+    /**
+     * Puts a certificate issued by this wallet on the CRL of its issuer (since
+     * eudi-dev v3.6.0).
+     *
+     * @param certificatePem the certificate as PEM
+     * @param reason         a CRL reason code of RFC 5280 §5.3.1
+     */
+    public RevokedCertificate revokeCertificate(String certificatePem, int reason) {
+        return toRevokedCertificate(parseObject(postJson(baseUrl + "/api/certificates/revocations",
+                toJson(Map.of("certificate", certificatePem, "reason", reason))), "revocation response"));
+    }
+
+    /** Takes a certificate off its CRL (since eudi-dev v3.6.0). */
+    public void undoCertificateRevocation(String serial) {
+        delete(baseUrl + "/api/certificates/revocations/" + urlEncode(serial));
+    }
+
+    private static RevokedCertificate toRevokedCertificate(Map<String, Object> raw) {
+        return new RevokedCertificate((String) raw.get("serial"), (String) raw.get("subject"), (String) raw.get("crl_path"),
+                instant(raw.get("revoked")), instant(raw.get("expires")), ((Number) raw.getOrDefault("reason", 0)).intValue());
+    }
+
+    /** Returns the withdrawn certificates (since eudi-dev v3.6.0). */
+    public List<WithdrawnCertificate> getWithdrawnCertificates() {
+        return parseList(get(baseUrl + "/api/trust/withdrawals"), "withdrawals response")
+                .stream().map(WalletClient::toWithdrawnCertificate).collect(Collectors.toList());
+    }
+
+    /**
+     * Removes a certificate from the wallet's own trusted lists, and every
+     * certificate issued by it (since eudi-dev v3.6.0). Withdraw a CA. A
+     * verifier still accepts a signing certificate while its CA stays listed.
+     *
+     * @param certificatePem the certificate as PEM
+     */
+    public WithdrawnCertificate withdrawCertificate(String certificatePem) {
+        return toWithdrawnCertificate(parseObject(postJson(baseUrl + "/api/trust/withdrawals",
+                toJson(Map.of("certificate", certificatePem))), "withdrawal response"));
+    }
+
+    /** Puts a withdrawn certificate back on its list (since eudi-dev v3.6.0). */
+    public void restoreCertificate(String id) {
+        delete(baseUrl + "/api/trust/withdrawals/" + urlEncode(id));
+    }
+
+    private static WithdrawnCertificate toWithdrawnCertificate(Map<String, Object> raw) {
+        return new WithdrawnCertificate((String) raw.get("id"), (String) raw.get("subject"), instant(raw.get("withdrawn")));
+    }
+
+    /**
+     * Makes the CRL endpoints of this wallet fail until
+     * {@link #clearCrlFault()} (since eudi-dev v3.6.0). The fault stays in
+     * memory.
+     */
+    public void setCrlFault(CrlFault fault) {
+        putJson(baseUrl + "/api/crl/fault", toJson(Map.of("fault", fault.value())));
+    }
+
+    /** Sets the nextUpdate of the CRLs (since eudi-dev v3.6.0). */
+    public void setCrlNextUpdate(Duration nextUpdate) {
+        putJson(baseUrl + "/api/crl/fault", toJson(Map.of("next_update_seconds", nextUpdate.toSeconds())));
+    }
+
+    /** Clears a CRL fault (since eudi-dev v3.6.0). */
+    public void clearCrlFault() {
+        delete(baseUrl + "/api/crl/fault");
+    }
+
+    /**
+     * Returns the attestation types of the registrar catalogue with their
+     * issuers (since eudi-dev v3.6.0).
+     */
+    public List<IssuableCredential> getIssuableCredentials() {
+        return parseList(get(baseUrl + "/api/issuance"), "issuance response")
+                .stream().map(WalletClient::toIssuableCredential).collect(Collectors.toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static IssuableCredential toIssuableCredential(Map<String, Object> raw) {
+        List<Map<String, Object>> issuers = (List<Map<String, Object>>) raw.get("issuers");
+        return new IssuableCredential((String) raw.get("id"), (String) raw.get("name"), (String) raw.get("category"),
+                issuers.stream().map(issuer -> new IssuableCredential.Issuer((String) issuer.get("name"), (String) issuer.get("url"),
+                        stringList(issuer.get("credential_configuration_ids")))).collect(Collectors.toList()));
+    }
+
+    /**
+     * Requests a credential from an issuer without an offer (since eudi-dev
+     * v3.6.0). Each format of an attestation is one configuration, and ARF
+     * ISSU_12a asks for all of them. They share one authorization. If the
+     * status is {@code authorization_required}, open
+     * {@link CredentialRequest#authorizationUrl()} and read
+     * {@link #getCredentialRequest(String)}.
+     */
+    public CredentialRequest requestCredential(String issuer, List<String> credentialConfigurationIds) {
+        return toCredentialRequest(parseObject(postJson(baseUrl + "/api/issuance",
+                toJson(Map.of("issuer", issuer, "credential_configuration_ids", credentialConfigurationIds))), "issuance response"));
+    }
+
+    /** Reads a credential request that waits for sign-in (since eudi-dev v3.6.0). */
+    public CredentialRequest getCredentialRequest(String offerId) {
+        return toCredentialRequest(parseObject(get(baseUrl + "/api/offers/" + urlEncode(offerId)), "offer response"));
+    }
+
+    /**
+     * Gives up a sign-in (since eudi-dev v3.6.0).
+     * {@link #getCredentialRequest(String)} reads status {@code cancelled} once
+     * the flow has ended, which can take a moment.
+     */
+    public void cancelCredentialRequest(String offerId) {
+        delete(baseUrl + "/api/offers/" + urlEncode(offerId));
+    }
+
+    private static CredentialRequest toCredentialRequest(Map<String, Object> raw) {
+        String completed = Boolean.TRUE.equals(raw.get("pending")) ? "deferred" : "completed";
+        return new CredentialRequest((String) raw.getOrDefault("status", completed), (String) raw.get("authorization_url"),
+                (String) raw.get("offer_id"), (String) raw.get("error"));
+    }
+
+    private static List<Map<String, Object>> parseList(String body, String description) {
+        try {
+            return MAPPER.readValue(body, new TypeReference<>() {});
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse " + description, e);
+        }
+    }
+
+    private static Instant instant(Object epochSeconds) {
+        return Instant.ofEpochSecond(((Number) epochSeconds).longValue());
     }
 
     /**
