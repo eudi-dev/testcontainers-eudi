@@ -33,7 +33,7 @@ public record IssuableCredential(String id, String name, String category, List<I
      *
      * @param name                      the name
      * @param url                       the Credential Issuer Identifier
-     * @param credentialConfigurationIds one configuration per format
+     * @param credentialConfigurationIds one configuration per format, empty without issuer metadata
      */
     public record Issuer(String name, String url, List<String> credentialConfigurationIds) {
     }

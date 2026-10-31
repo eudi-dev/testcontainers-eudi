@@ -40,6 +40,7 @@ public class WalletClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long POLL_INTERVAL_MILLIS = 50;
+    private static final Duration ISSUER_METADATA_TIMEOUT = Duration.ofSeconds(20);
 
     private final String baseUrl;
     private final HttpClient httpClient;
@@ -313,7 +314,7 @@ public class WalletClient {
                 (String) raw.get("withdrawn_id"), stringList(raw.get("credentials")));
     }
 
-    /** Returns the certificates this wallet revoked (since eudi-dev v3.6.0). */
+    /** Returns the certificates revoked by this wallet (since eudi-dev v3.6.0). */
     public List<RevokedCertificate> getRevokedCertificates() {
         return parseList(get(baseUrl + "/api/certificates/revocations"), "revocations response")
                 .stream().map(WalletClient::toRevokedCertificate).collect(Collectors.toList());
@@ -399,10 +400,24 @@ public class WalletClient {
 
     /**
      * Returns the attestation types of the registrar catalogue with their
-     * issuers (since eudi-dev v3.6.0).
+     * issuers (since eudi-dev v3.6.0). The wallet reads issuer metadata in the
+     * background, so this waits up to 20 seconds for it.
+     * An issuer that has not answered by then is missing from the list.
      */
+    @SuppressWarnings("unchecked")
     public List<IssuableCredential> getIssuableCredentials() {
-        return parseList(get(baseUrl + "/api/issuance"), "issuance response")
+        long deadline = System.nanoTime() + ISSUER_METADATA_TIMEOUT.toNanos();
+        Map<String, Object> issuable = parseObject(get(baseUrl + "/api/issuance"), "issuance response");
+        while (Boolean.TRUE.equals(issuable.get("loading")) && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(POLL_INTERVAL_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new WalletClientException("Interrupted while waiting for issuer metadata", e);
+            }
+            issuable = parseObject(get(baseUrl + "/api/issuance"), "issuance response");
+        }
+        return ((List<Map<String, Object>>) issuable.get("credentials"))
                 .stream().map(WalletClient::toIssuableCredential).collect(Collectors.toList());
     }
 
@@ -427,15 +442,25 @@ public class WalletClient {
                 toJson(Map.of("issuer", issuer, "credential_configuration_ids", credentialConfigurationIds))), "issuance response"));
     }
 
+    /**
+     * Requests a credential by its catalogue entry (since eudi-dev v3.6.0), for
+     * an issuer listed without configurations. The wallet asks the issuer for
+     * them.
+     */
+    public CredentialRequest requestCredential(String issuer, String attestationId) {
+        return toCredentialRequest(parseObject(postJson(baseUrl + "/api/issuance",
+                toJson(Map.of("issuer", issuer, "attestation", attestationId))), "issuance response"));
+    }
+
     /** Reads a credential request that waits for sign-in (since eudi-dev v3.6.0). */
     public CredentialRequest getCredentialRequest(String offerId) {
         return toCredentialRequest(parseObject(get(baseUrl + "/api/offers/" + urlEncode(offerId)), "offer response"));
     }
 
     /**
-     * Gives up a sign-in (since eudi-dev v3.6.0).
-     * {@link #getCredentialRequest(String)} reads status {@code cancelled} once
-     * the flow has ended, which can take a moment.
+     * Cancels a sign-in (since eudi-dev v3.6.0). The flow can take a moment to
+     * end. {@link #getCredentialRequest(String)} then reads status
+     * {@code cancelled}.
      */
     public void cancelCredentialRequest(String offerId) {
         delete(baseUrl + "/api/offers/" + urlEncode(offerId));

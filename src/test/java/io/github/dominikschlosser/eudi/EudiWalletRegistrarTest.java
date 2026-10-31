@@ -83,7 +83,7 @@ class EudiWalletRegistrarTest {
     @Test
     void registeredVerifierPassesStrictArfChecksUntilRevoked() throws Exception {
         WalletClient client = wallet.client();
-        RelyingParty shop = registerShop(client);
+        RelyingParty shop = registerDemoVerifierQuery(client);
         String intendedUse = shop.intendedUses().getFirst().identifier();
         AccessCertificate access = client.issueAccessCertificate(shop.identifier(), csr());
         RegistrationCertificate registration = client.issueRegistrationCertificate(shop.identifier(), intendedUse);
@@ -312,10 +312,19 @@ class EudiWalletRegistrarTest {
     }
 
     private static RelyingParty registerShop(WalletClient client) {
-        // the demo verifier's SD-JWT PID request asks for these two claims
         return client.registerRelyingParty(RelyingPartyRegistration.verifier("Example Shop")
                 .purpose("Name check")
                 .credential(CredentialFormat.SD_JWT, PID_VCT, "given_name", "family_name"));
+    }
+
+    // The demo verifier's SD-JWT PID request accepts these types and asks for these
+    // two claims.
+    private static RelyingParty registerDemoVerifierQuery(WalletClient client) {
+        RelyingPartyRegistration registration = RelyingPartyRegistration.verifier("Example Shop").purpose("Name check");
+        for (String type : List.of(PID_VCT, "urn:eudi:pid:nl:1", "urn:eudi:pid:de:1", "urn:eudi:pid:it:1")) {
+            registration.credential(CredentialFormat.SD_JWT, type, "given_name", "family_name");
+        }
+        return client.registerRelyingParty(registration);
     }
 
     private static String csr() throws Exception {

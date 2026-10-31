@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EudiWalletStorageTest {
 
     private static final String IMAGE = System.getProperty(
-            "eudi.test.image", "ghcr.io/eudi-dev/eudi-dev:v3.1.4");
+            "eudi.test.image", "ghcr.io/eudi-dev/eudi-dev:v3.6.0");
 
     @TempDir
     Path state;

@@ -1215,33 +1215,20 @@ class EudiWalletContainerTest {
     void offerRequiringTransactionCodeNeedsTheCode() throws Exception {
         WalletClient client = wallet.client();
 
-        // a real pre-authorized offer from the demo issuer, rewritten to
-        // demand a transaction code (the demo issuer itself never asks one)
         HttpResponse<String> created = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(wallet.getBaseUrl() + "/issuer/api/offers"))
+                HttpRequest.newBuilder(URI.create(wallet.getBaseUrl() + "/issuer/api/offers?tx_code=true"))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString("{}"))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
-        Map<String, Object> offerRef = MAPPER.readValue(created.body(), new TypeReference<>() {});
-        HttpResponse<String> offerDoc = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(wallet.getBaseUrl() + "/issuer/offer/" + offerRef.get("id")))
-                        .GET().build(),
-                HttpResponse.BodyHandlers.ofString());
-        Map<String, Object> offer = MAPPER.readValue(offerDoc.body(), new TypeReference<>() {});
-        @SuppressWarnings("unchecked")
-        Map<String, Object> preAuthGrant = (Map<String, Object>)
-                ((Map<String, Object>) offer.get("grants"))
-                        .get("urn:ietf:params:oauth:grant-type:pre-authorized_code");
-        preAuthGrant.put("tx_code", Map.of("length", 4, "input_mode", "numeric"));
-        String offerUri = "openid-credential-offer://?credential_offer="
-                + java.net.URLEncoder.encode(MAPPER.writeValueAsString(offer), StandardCharsets.UTF_8);
+        Map<String, Object> offer = MAPPER.readValue(created.body(), new TypeReference<>() {});
+        String offerUri = (String) offer.get("scheme_uri");
 
         assertThatThrownBy(() -> client.acceptCredentialOffer(offerUri))
                 .isInstanceOf(WalletClientException.class)
                 .hasMessageContaining("transaction code");
 
-        OfferResponse accepted = client.acceptCredentialOffer(offerUri, "1234");
+        OfferResponse accepted = client.acceptCredentialOffer(offerUri, (String) offer.get("tx_code"));
         assertThat(accepted.credentialId()).isNotBlank();
     }
 

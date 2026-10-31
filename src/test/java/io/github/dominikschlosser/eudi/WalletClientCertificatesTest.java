@@ -108,8 +108,8 @@ class WalletClientCertificatesTest {
 
     @Test
     void requestsACredentialFromAnIssuer() {
-        response = "[{\"id\":\"s\",\"name\":\"Ticket\",\"category\":\"eaa\",\"issuers\":[{\"name\":\"Issuer\","
-                + "\"url\":\"https://issuer.example\",\"credential_configuration_ids\":[\"ticket\"]}]}]";
+        response = "{\"loading\":false,\"credentials\":[{\"id\":\"s\",\"name\":\"Ticket\",\"category\":\"eaa\",\"issuers\":[{\"name\":\"Issuer\","
+                + "\"url\":\"https://issuer.example\",\"credential_configuration_ids\":[\"ticket\"]}]}]}";
         IssuableCredential.Issuer issuer = client.getIssuableCredentials().get(0).issuers().get(0);
         response = "{\"status\":\"authorization_required\",\"authorization_url\":\"https://issuer.example/a\",\"offer_id\":\"o\"}";
 
@@ -118,5 +118,8 @@ class WalletClientCertificatesTest {
         assertThat(request.status()).isEqualTo("authorization_required");
         assertThat(request.authorizationUrl()).isEqualTo("https://issuer.example/a");
         assertThat(requests.get(1)).startsWith("POST /api/issuance ").contains("\"credential_configuration_ids\":[\"ticket\"]");
+
+        client.requestCredential(issuer.url(), "s");
+        assertThat(requests.get(2)).startsWith("POST /api/issuance ").contains("\"attestation\":\"s\"");
     }
 }

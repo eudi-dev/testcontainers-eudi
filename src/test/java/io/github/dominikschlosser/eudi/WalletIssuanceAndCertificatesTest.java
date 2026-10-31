@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 /** Runs the wallet-initiated issuance and CRL calls against a real wallet. */
 class WalletIssuanceAndCertificatesTest {
 
-    private static final String IMAGE = System.getProperty("eudi.test.image", "ghcr.io/eudi-dev/eudi-dev:v3.1.4");
+    private static final String IMAGE = System.getProperty("eudi.test.image", "ghcr.io/eudi-dev/eudi-dev:v3.6.0");
 
     @Test
     void aCredentialRequestWaitsForSignInUntilItIsCancelled() throws InterruptedException {

@@ -19,12 +19,12 @@ Requires Java 21 and Docker. The artifact is on [Maven Central](https://central.
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-eudi</artifactId>
-    <version>3.0.0</version>
+    <version>3.6.0</version>
     <scope>test</scope>
 </dependency>
 ```
 
-The container runs `ghcr.io/eudi-dev/eudi-dev:v3.1.4` by default. Pass a different image tag to the constructor to pin another wallet version. The module's major version follows eudi-dev's, so 3.x supports the eudi-dev 3 wallet. To try the wallet in the browser, use the demo at [eudi-test.dev](https://eudi-test.dev).
+The container runs `ghcr.io/eudi-dev/eudi-dev:v3.6.0` by default. Pass a different image tag to the constructor to pin another wallet version. The module's major version follows eudi-dev's, so 3.x supports the eudi-dev 3 wallet. To try the wallet in the browser, use the demo at [eudi-test.dev](https://eudi-test.dev).
 
 The wrapper uses file storage, so mounted wallet state and CA certificates are loaded. Use `withStorage(Storage.MEMORY)` for memory storage. See [Storage](docs/configuration.md#storage) for all options.
 
