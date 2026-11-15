@@ -16,7 +16,7 @@ EudiWalletContainer wallet = new EudiWalletContainer()
     .withoutDefaultPid();                            // start without the default PID credential
 ```
 
-`withTemplatesDirectory(Path)` ships a folder of credential templates into the container, and `withStartupCredentials(Path)` adds credentials on start, see [Credentials](credentials.md). `withRelyingParties(Path)` and `withCatalog(Path)` register verifiers, issuers and attestation types on start, see [Registrar](registrar.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md).
+`withTemplatesDirectory(Path)` ships a folder of credential templates into the container, and `withStartupCredentials(Path)` adds credentials on start, see [Credentials](credentials.md). `withRelyingParties(Path)` and `withCatalog(Path)` register verifiers, issuers and attestation types on start, see [Registrar](registrar.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md). `withTransactionData()` accepts transaction data in presentation requests, and `withDelegateSdJwt()` answers a delegation request with a Delegate SD-JWT, see [Flows](flows.md#delegation-with-a-delegate-sd-jwt).
 
 The container counts as started once `GET /readyz` answers. That endpoint also checks the storage backend. Wallet images before eudi-dev 2.6.0 lack it. For those, wait on the version endpoint instead:
 

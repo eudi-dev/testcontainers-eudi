@@ -115,6 +115,33 @@ public class WalletClient {
     }
 
     /**
+     * Returns the delegation records of a credential (since eudi-dev v3.11.0).
+     * Active records come first. See {@link EudiWalletContainer#withDelegateSdJwt()}.
+     */
+    public List<DelegationRecord> getDelegations(String credentialId) {
+        Map<String, Object> credential = parseObject(get(baseUrl + "/api/credentials/" + urlEncode(credentialId)),
+                "credential response");
+        return mapList(asMap(credential.get("delegations")).get("records"), WalletClient::toDelegationRecord);
+    }
+
+    private static DelegationRecord toDelegationRecord(Map<String, Object> raw) {
+        return new DelegationRecord((String) raw.get("id"), (String) raw.get("name"), (String) raw.get("client_id"),
+                (String) raw.get("aud"), (String) raw.get("format"), timestamp(raw.get("signed_at")),
+                stringList(raw.get("disclosed")), Boolean.TRUE.equals(raw.get("expired")),
+                timestamp(raw.get("expires_at")), Boolean.TRUE.equals(raw.get("revoked")),
+                mapList(raw.get("delegates"), WalletClient::toDelegate), (String) raw.get("chain"));
+    }
+
+    private static DelegationRecord.Delegate toDelegate(Map<String, Object> raw) {
+        return new DelegationRecord.Delegate((String) raw.get("key_thumbprint"), asMap(raw.get("jwk")),
+                asMap(raw.get("payload")), timestamp(raw.get("expires_at")));
+    }
+
+    private static Instant timestamp(Object rfc3339) {
+        return rfc3339 == null ? null : Instant.parse((String) rfc3339);
+    }
+
+    /**
      * Issues a credential with the wallet's issuer key and imports it into the
      * wallet, mirroring {@code eudi issue sdjwt|jwt|mdoc --wallet}.
      */

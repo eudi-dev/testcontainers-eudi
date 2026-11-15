@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] - Unreleased
+
+### Added
+
+`withTransactionData()` needs eudi-dev 3.9.0 and the delegation methods need 3.11.0. The default image is now `v3.11.0`.
+
+- **Delegate SD-JWT.** `withDelegateSdJwt()` answers `delegate` transaction data with a Delegate SD-JWT, and `getDelegations(credentialId)` returns the delegation records of a credential with their chains. See [Delegation with a Delegate SD-JWT](docs/flows.md#delegation-with-a-delegate-sd-jwt).
+- **Transaction data.** `withTransactionData()` accepts the `transaction_data` request parameter.
+
 ## [3.6.0] - 2026-10-31
 
 ### Added

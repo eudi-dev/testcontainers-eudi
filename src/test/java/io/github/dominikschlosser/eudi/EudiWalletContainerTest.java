@@ -17,6 +17,8 @@ package io.github.dominikschlosser.eudi;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -853,6 +855,50 @@ class EudiWalletContainerTest {
             PresentationResponse response = arfWallet.acceptPresentationRequest((String) request.get("scheme_uri"));
             assertThat(response.status()).isEqualTo("submitted");
             assertThat(response.findings()).anyMatch(finding -> finding.contains("RPRC_19"));
+        }
+    }
+
+    @Test
+    void aDelegateEntryIsAnsweredWithADelegateSdJwtAndRecorded() throws Exception {
+        try (EudiWalletContainer delegating = new EudiWalletContainer().withDelegateSdJwt()) {
+            delegating.start();
+            Map<String, Object> agentKey = new ECKeyGenerator(Curve.P_256).generate().toPublicJWK().toJSONObject();
+            Map<String, Object> delegatePayload = Map.of(
+                    "purpose", "Approve supplier invoices",
+                    "cnf", Map.of("jwk", agentKey));
+            Map<String, Object> request = createVerifierRequest(delegating, MAPPER.writeValueAsString(Map.of(
+                    "type", "custom",
+                    "dcql_query", Map.of("credentials", List.of(Map.of(
+                            "id", "pid",
+                            "format", "dc+sd-jwt",
+                            "meta", Map.of("vct_values", List.of("urn:eudi:pid:1")),
+                            "claims", List.of(Map.of("path", List.of("given_name")))))),
+                    "transaction_data", List.of(Map.of(
+                            "type", "delegate",
+                            "credential_ids", List.of("pid"),
+                            "format", "dSD-JWT+KB",
+                            "delegate_payload", delegatePayload)))));
+
+            PresentationResponse response = delegating.acceptPresentationRequest((String) request.get("scheme_uri"));
+            assertThat(response.status()).isEqualTo("submitted");
+            Map<String, Object> status = verifierRequestStatus(delegating, (String) request.get("transaction_id"));
+            assertThat(status.get("status")).isEqualTo("verified");
+
+            Credential pid = delegating.client().getCredentialsByType("urn:eudi:pid:1").stream()
+                    .filter(credential -> credential.format() == CredentialFormat.SD_JWT)
+                    .findFirst().orElseThrow();
+            List<DelegationRecord> records = delegating.client().getDelegations(pid.id());
+            assertThat(records).hasSize(1);
+            DelegationRecord record = records.get(0);
+            assertThat(record.format()).isEqualTo("dSD-JWT+KB");
+            assertThat(record.expired()).isFalse();
+            assertThat(record.signedAt()).isNotNull();
+            assertThat(record.chain()).startsWith(pid.raw().substring(0, pid.raw().indexOf('~'))).contains("~~");
+            assertThat(record.delegates()).singleElement().satisfies(delegate -> {
+                assertThat(delegate.jwk()).isEqualTo(agentKey);
+                assertThat(delegate.payload()).containsEntry("purpose", "Approve supplier invoices");
+                assertThat(delegate.expiresAt()).isAfter(record.signedAt());
+            });
         }
     }
 

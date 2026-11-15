@@ -166,3 +166,21 @@ OfferResponse response = submitted.get();
 ```
 
 The presentation request takes a `ConsentApproval` like any other, so a test can choose the presented credential or disclose only selected claims here too. Denying it aborts the issuance.
+
+## Delegation with a Delegate SD-JWT
+
+A verifier can ask the wallet to delegate an SD-JWT VC to another key, such as the key of an AI agent. The verifier sends a transaction data entry of the type `delegate`, and the wallet answers with a Delegate SD-JWT (draft-ietf-oauth-delegate-sd-jwt-00). eudi-dev 3.11.0 supports it as an experimental feature. Turn it on with `withDelegateSdJwt()`:
+
+```java
+EudiWalletContainer wallet = new EudiWalletContainer()
+    .withDelegateSdJwt();
+```
+
+The wallet keeps a record of each delegation with the credential. The record holds the chain, so a test can hand it to the Delegate Holder:
+
+```java
+List<DelegationRecord> records = wallet.client().getDelegations(credentialId);
+String chain = records.get(0).chain();
+```
+
+The Delegate Holder signs a Key Binding JWT with its own key, appends it and presents the chain to the next verifier. See [Delegation with a Delegate SD-JWT](https://github.com/eudi-dev/eudi-dev/blob/main/docs/wallet/presenting.md#delegation-with-a-delegate-sd-jwt) in the eudi-dev docs for the request format.

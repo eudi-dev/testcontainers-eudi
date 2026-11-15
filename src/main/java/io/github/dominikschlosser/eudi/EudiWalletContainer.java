@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/eudi-dev/eudi-dev:v3.6.0";
+    private static final String DEFAULT_IMAGE = "ghcr.io/eudi-dev/eudi-dev:v3.11.0";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
@@ -74,6 +74,8 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private boolean haip = false;
     private boolean strictValidation = false;
     private boolean arf = false;
+    private boolean transactionData = false;
+    private boolean delegateSdJwt = false;
     private String baseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
@@ -219,6 +221,29 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     public EudiWalletContainer withArf() {
         this.arf = true;
         return this;
+    }
+
+    /**
+     * Accepts the {@code transaction_data} parameter of presentation requests
+     * (OpenID4VP 1.0 §5.1, {@code --transaction-data}, since eudi-dev v3.9.0).
+     * eudi-dev marks the feature as experimental.
+     */
+    public EudiWalletContainer withTransactionData() {
+        this.transactionData = true;
+        return this;
+    }
+
+    /**
+     * Answers transaction data of the type {@code delegate} with a Delegate
+     * SD-JWT (draft-ietf-oauth-delegate-sd-jwt-00, {@code --delegate-sd-jwt},
+     * since eudi-dev v3.11.0). The wallet keeps a record of each delegation,
+     * see {@link WalletClient#getDelegations(String)}. eudi-dev marks the
+     * feature as experimental. It needs transaction data, so this also calls
+     * {@link #withTransactionData()}.
+     */
+    public EudiWalletContainer withDelegateSdJwt() {
+        this.delegateSdJwt = true;
+        return withTransactionData();
     }
 
     /**
@@ -451,6 +476,12 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         }
         if (arf) {
             flags.add("--arf");
+        }
+        if (transactionData) {
+            flags.add("--transaction-data");
+        }
+        if (delegateSdJwt) {
+            flags.add("--delegate-sd-jwt");
         }
         for (String ca : relyingPartyCas) {
             flags.add("--relying-party-ca");
